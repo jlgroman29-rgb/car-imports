@@ -1,0 +1,17 @@
+# Node / React
+car-imports-frontend/node_modules/
+car-imports-frontend/build/
+
+# Python / Flask
+car-imports-backend/venv/
+car-imports-backend/__pycache__/
+car-imports-backend/*.pyc
+
+# Env / secrets
+car-imports-backend/.env
+.env
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
