@@ -649,8 +649,11 @@ def create_cost():
         fecha = data.get("fecha")
         descripcion = data.get("descripcion")
 
-        if not vehicle_id or not tipo or not monto:
-            return {"error": "vehicle_id, tipo y monto son obligatorios"}, 400
+        if vehicle_id is None or not tipo or monto is None:
+            return {
+                "status": "error",
+                "message": "vehicle_id, tipo y monto son obligatorios"
+            }, 400
 
         conn = get_connection()
         cur = conn.cursor()
@@ -771,7 +774,10 @@ def patch_cost(id):
                 values.append(data[f])
 
         if not fields:
-            return {"error": "No hay datos"}, 400
+            return {
+                "status": "error",
+                "message": "No hay datos para actualizar"
+            }, 400
 
         values.append(id)
 
@@ -793,9 +799,15 @@ def patch_cost(id):
         conn.close()
 
         if updated is None:
-            return {"error": "Costo no encontrado"}, 404
+            return {
+                "status": "error",
+                "message": "Costo no encontrado"
+            }, 404
 
-        return {"status": "OK"}
+        return {
+            "status": "OK",
+            "message": f"Costo {id} actualizado"
+        }
 
     except Exception as e:
         return {"error": str(e)}, 500
