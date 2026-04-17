@@ -361,7 +361,7 @@ def dashboard_summary():
 @app.route("/costs", methods=["POST"])
 def create_cost():
     try:
-        data = request.json
+        data = request.get_json(silent=True) or {}
 
         vehicle_id = data.get("vehicle_id")
         tipo = data.get("tipo")
@@ -407,6 +407,51 @@ def create_cost():
     except Exception as e:
         return {"error": str(e)}, 500    
 
+
+@app.route("/vehicles/<int:vehicle_id>/costs", methods=["GET"])
+def get_costs_by_vehicle(vehicle_id):
+    try:
+        conn = get_connection()
+        cur = conn.cursor()
+
+        cur.execute("""
+            SELECT
+                id,
+                vehicle_id,
+                tipo,
+                monto,
+                moneda,
+                tasa_cambio,
+                fecha,
+                descripcion
+            FROM costs
+            WHERE vehicle_id = %s
+            ORDER BY COALESCE(fecha, NOW()) DESC, id DESC;
+        """, (vehicle_id,))
+
+        rows = cur.fetchall()
+
+        cur.close()
+        conn.close()
+
+        data = []
+        for row in rows:
+            data.append({
+                "id": row[0],
+                "vehicle_id": row[1],
+                "tipo": row[2],
+                "monto": float(row[3]) if row[3] is not None else 0,
+                "moneda": row[4],
+                "tasa_cambio": float(row[5]) if row[5] is not None else None,
+                "fecha": row[6],
+                "descripcion": row[7]
+            })
+
+        return {"status": "OK", "data": data}
+
+    except Exception as e:
+        return {"error": str(e)}, 500
+
 @app.route("/costs/<int:id>", methods=["DELETE"])
 def delete_cost(id):
     try:
@@ -431,7 +476,7 @@ def delete_cost(id):
 @app.route("/costs/<int:id>", methods=["PATCH"])
 def patch_cost(id):
     try:
-        data = request.json
+        data = request.get_json(silent=True) or {}
 
         fields = []
         values = []
