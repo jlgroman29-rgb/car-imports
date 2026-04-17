@@ -15,6 +15,17 @@ VALID_ESTADOS = [
     "vendido",
     "inventario"
 ]
+
+VALID_TIPOS_COSTO = [
+    "flete",
+    "aduana",
+    "impuestos",
+    "reparacion",
+    "transporte_local",
+    "comision",
+    "documentacion",
+    "otros",
+]
 def get_connection():
     return psycopg2.connect(
         host="127.0.0.1",
@@ -46,6 +57,18 @@ def validar_estado(data):
         return {
             "status": "error",
             "message": f"Estado inválido. Usa uno de estos: {VALID_ESTADOS}"
+        }, 400
+
+    return None
+
+
+def validar_tipo_costo(data):
+    tipo = data.get("tipo")
+
+    if tipo and tipo not in VALID_TIPOS_COSTO:
+        return {
+            "status": "error",
+            "message": f"Tipo de costo inválido. Usa uno de estos: {VALID_TIPOS_COSTO}"
         }, 400
 
     return None
@@ -358,10 +381,19 @@ def dashboard_summary():
     except Exception as e:
         return {"error": str(e)}    
 
+
+@app.route("/catalogs/cost-types", methods=["GET"])
+def get_cost_types():
+    return {"status": "OK", "data": VALID_TIPOS_COSTO}
+
 @app.route("/costs", methods=["POST"])
 def create_cost():
     try:
         data = request.get_json(silent=True) or {}
+
+        validation_error = validar_tipo_costo(data)
+        if validation_error:
+            return validation_error
 
         vehicle_id = data.get("vehicle_id")
         tipo = data.get("tipo")
@@ -477,6 +509,10 @@ def delete_cost(id):
 def patch_cost(id):
     try:
         data = request.get_json(silent=True) or {}
+
+        validation_error = validar_tipo_costo(data)
+        if validation_error:
+            return validation_error
 
         fields = []
         values = []
