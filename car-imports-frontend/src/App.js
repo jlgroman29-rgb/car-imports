@@ -50,18 +50,23 @@ function App() {
       return;
     }
 
-    fetch("http://127.0.0.1:5000/costs", {
-      method: "POST",
+    const url = editingCostId
+      ? `http://127.0.0.1:5000/costs/${editingCostId}`
+      : "http://127.0.0.1:5000/costs";
+    const method = editingCostId ? "PATCH" : "POST";
+
+    fetch(url, {
+      method,
       headers: {
         "Content-Type": "application/json"
       },
       body: JSON.stringify({
         ...costForm,
-        vehicle_id: selectedVehicle.id,
         monto: Number(costForm.monto),
-        tasa_cambio: costForm.tasa_cambio
+        tasa_cambio: costForm.tasa_cambio !== ""
           ? Number(costForm.tasa_cambio)
-          : null
+          : null,
+        ...(editingCostId ? {} : { vehicle_id: selectedVehicle.id })
       })
     })
       .then((res) => res.json())
@@ -69,16 +74,7 @@ function App() {
         if (selectedVehicle) {
           loadCosts(selectedVehicle.id);
         }
-
-        // reset form
-        setCostForm({
-          tipo: "",
-          monto: "",
-          moneda: "USD",
-          tasa_cambio: "",
-          fecha: "",
-          descripcion: ""
-        });
+        resetCostForm();
       })
       .catch((err) => console.error(err));
   };
@@ -88,6 +84,7 @@ function App() {
   const [costs, setCosts] = useState([]);
   const [selectedVehicle, setSelectedVehicle] = useState(null);
   const [totalCost, setTotalCost] = useState(0);
+  const [editingCostId, setEditingCostId] = useState(null);
   const [costForm, setCostForm] = useState({
     tipo: "",
     monto: "",
@@ -96,6 +93,49 @@ function App() {
     fecha: "",
     descripcion: ""
   });
+  const resetCostForm = () => {
+    setCostForm({
+      tipo: "",
+      monto: "",
+      moneda: "USD",
+      tasa_cambio: "",
+      fecha: "",
+      descripcion: ""
+    });
+    setEditingCostId(null);
+  };
+  const handleEditCost = (cost) => {
+    setCostForm({
+      tipo: cost.tipo || "",
+      monto: cost.monto !== null && cost.monto !== undefined ? String(cost.monto) : "",
+      moneda: cost.moneda || "USD",
+      tasa_cambio:
+        cost.tasa_cambio !== null && cost.tasa_cambio !== undefined
+          ? String(cost.tasa_cambio)
+          : "",
+      fecha: cost.fecha || "",
+      descripcion: cost.descripcion || ""
+    });
+    setEditingCostId(cost.id);
+  };
+  const handleDeleteCost = (costId) => {
+    if (!window.confirm("¿Seguro que deseas eliminar este costo?")) return;
+
+    fetch(`http://127.0.0.1:5000/costs/${costId}`, {
+      method: "DELETE"
+    })
+      .then((res) => res.json())
+      .then(() => {
+        if (selectedVehicle) {
+          loadCosts(selectedVehicle.id);
+        }
+
+        if (editingCostId === costId) {
+          resetCostForm();
+        }
+      })
+      .catch((err) => console.error(err));
+  };
   const handleEdit = (vehicle) => {
     setForm({
       vin: vehicle.vin || "",
@@ -554,7 +594,14 @@ function App() {
               onChange={handleCostChange}
             />
 
-            <button type="submit">Agregar Costo</button>
+            <button type="submit">
+              {editingCostId ? "Actualizar Costo" : "Agregar Costo"}
+            </button>
+            {editingCostId && (
+              <button type="button" onClick={resetCostForm}>
+                Cancelar edición
+              </button>
+            )}
           </form>
 
           <p><strong>Total costos:</strong> {formatMoney(totalCost)}</p>
@@ -567,6 +614,7 @@ function App() {
                 <th>Moneda</th>
                 <th>Fecha</th>
                 <th>Descripción</th>
+                <th>Acciones</th>
               </tr>
             </thead>
             <tbody>
@@ -577,6 +625,14 @@ function App() {
                   <td>{c.moneda}</td>
                   <td>{c.fecha}</td>
                   <td>{c.descripcion}</td>
+                  <td>
+                    <button onClick={() => handleEditCost(c)}>
+                      Editar
+                    </button>
+                    <button onClick={() => handleDeleteCost(c.id)}>
+                      Eliminar
+                    </button>
+                  </td>
                 </tr>
               ))}
             </tbody>
