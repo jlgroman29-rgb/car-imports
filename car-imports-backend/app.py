@@ -495,6 +495,177 @@ def total_costs(vehicle_id):
     except Exception as e:
         return {"error": str(e)}, 500            
 
+@app.route("/sales", methods=["POST"])
+def create_sale():
+    try:
+        data = request.json or {}
+
+        vehicle_id = data.get("vehicle_id")
+        sale_price = data.get("sale_price")
+        sale_date = data.get("sale_date")
+        buyer_name = data.get("buyer_name")
+        notes = data.get("notes")
+
+        if not vehicle_id or sale_price is None:
+            return {"error": "vehicle_id y sale_price son obligatorios"}, 400
+
+        conn = get_connection()
+        cur = conn.cursor()
+
+        # 1) Valida que el vehículo exista
+        cur.execute("""
+            SELECT id, estado
+            FROM vehicles
+            WHERE id = %s
+        """, (vehicle_id,))
+        vehicle = cur.fetchone()
+
+        if vehicle is None:
+            cur.close()
+            conn.close()
+            return {"error": "Vehículo no encontrado"}, 404
+
+        # 2) Evita más de una venta por vehículo
+        cur.execute("""
+            SELECT id
+            FROM sales
+            WHERE vehicle_id = %s
+        """, (vehicle_id,))
+        existing_sale = cur.fetchone()
+
+        if existing_sale is not None:
+            cur.close()
+            conn.close()
+            return {"error": "Este vehículo ya tiene una venta registrada"}, 409
+
+        # 3) Inserta venta
+        cur.execute("""
+            INSERT INTO sales (vehicle_id, sale_price, sale_date, buyer_name, notes, created_at)
+            VALUES (
+                %s,
+                %s,
+                COALESCE(%s::date, CURRENT_DATE),
+                %s,
+                %s,
+                NOW()
+            )
+            RETURNING id, sale_date;
+        """, (
+            vehicle_id,
+            sale_price,
+            sale_date,
+            buyer_name,
+            notes
+        ))
+
+        new_sale = cur.fetchone()
+        sale_id = new_sale[0]
+        resolved_sale_date = new_sale[1]
+
+        # 4) Sincroniza el vehículo como vendido
+        cur.execute("""
+            UPDATE vehicles
+            SET estado = 'vendido',
+                fecha_venta = %s
+            WHERE id = %s
+        """, (resolved_sale_date, vehicle_id))
+
+        conn.commit()
+        cur.close()
+        conn.close()
+
+        return {
+            "status": "OK",
+            "message": "Venta registrada y vehículo actualizado",
+            "data": {
+                "id": sale_id,
+                "vehicle_id": vehicle_id,
+                "sale_date": resolved_sale_date,
+            }
+        }, 201
+
+    except Exception as e:
+        return {"error": str(e)}, 500
+
+@app.route("/sales", methods=["GET"])
+def get_sales():
+    try:
+        conn = get_connection()
+        import psycopg2.extras
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+        cur.execute("""
+            SELECT
+                s.id,
+                s.vehicle_id,
+                s.sale_price,
+                s.sale_date,
+                s.buyer_name,
+                s.notes,
+                s.created_at,
+                v.vin,
+                v.marca,
+                v.modelo,
+                v.anio
+            FROM sales s
+            INNER JOIN vehicles v ON v.id = s.vehicle_id
+            ORDER BY s.sale_date DESC, s.created_at DESC;
+        """)
+
+        rows = cur.fetchall()
+        cur.close()
+        conn.close()
+
+        return {
+            "status": "OK",
+            "data": rows
+        }
+    except Exception as e:
+        return {"error": str(e)}, 500
+
+@app.route("/sales/<int:id>", methods=["DELETE"])
+def delete_sale(id):
+    try:
+        conn = get_connection()
+        cur = conn.cursor()
+
+        # Busca la venta para recuperar el vehicle_id
+        cur.execute("""
+            SELECT id, vehicle_id
+            FROM sales
+            WHERE id = %s
+        """, (id,))
+        sale = cur.fetchone()
+
+        if sale is None:
+            cur.close()
+            conn.close()
+            return {"error": "Venta no encontrada"}, 404
+
+        vehicle_id = sale[1]
+
+        # Elimina venta
+        cur.execute("DELETE FROM sales WHERE id = %s;", (id,))
+
+        # Revierte vehículo a inventario
+        cur.execute("""
+            UPDATE vehicles
+            SET estado = 'inventario',
+                fecha_venta = NULL
+            WHERE id = %s
+        """, (vehicle_id,))
+
+        conn.commit()
+        cur.close()
+        conn.close()
+
+        return {
+            "status": "OK",
+            "message": f"Venta {id} eliminada y vehículo {vehicle_id} reintegrado a inventario"
+        }
+    except Exception as e:
+        return {"error": str(e)}, 500
+
 
 if __name__ == "__main__":
     Swagger(app)
