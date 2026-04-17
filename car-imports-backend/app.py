@@ -85,6 +85,42 @@ def validar_tipo_costo(data):
 
     return None
 
+
+def get_table_columns(conn, table_name):
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT column_name
+        FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = %s
+    """, (table_name,))
+    cols = {row[0] for row in cur.fetchall()}
+    cur.close()
+    return cols
+
+
+def get_sales_price_column(columns):
+    if "monto" in columns:
+        return "monto"
+    if "precio_venta" in columns:
+        return "precio_venta"
+    return None
+
+
+def normalize_sale(row, columns):
+    price_column = get_sales_price_column(columns)
+    amount = row.get(price_column) if price_column else None
+    tasa = row.get("tasa_cambio")
+    return {
+        "id": row.get("id"),
+        "vehicle_id": row.get("vehicle_id"),
+        "monto": float(amount) if amount is not None else 0,
+        "moneda": row.get("moneda", "DOP"),
+        "tasa_cambio": float(tasa) if tasa is not None else None,
+        "fecha": row.get("fecha"),
+        "descripcion": row.get("descripcion"),
+        "created_at": row.get("created_at"),
+    }
+
 @app.route("/")
 def home():
     return {"message": "API funcionando 🚗"}
@@ -405,6 +441,196 @@ def get_cost_types():
         }
 
     return {"status": "OK", "data": VALID_TIPOS_COSTO}
+
+@app.route("/sales", methods=["POST"])
+def create_sale():
+    try:
+        data = request.get_json(silent=True) or {}
+
+        conn = get_connection()
+        sales_columns = get_table_columns(conn, "sales")
+        price_column = get_sales_price_column(sales_columns)
+
+        if not price_column:
+            conn.close()
+            return {"error": "La tabla sales no tiene una columna de monto válida"}, 500
+
+        vehicle_id = data.get("vehicle_id")
+        amount = data.get("monto", data.get("precio_venta"))
+        moneda = data.get("moneda", "DOP")
+        tasa_cambio = data.get("tasa_cambio")
+        fecha = data.get("fecha")
+        descripcion = data.get("descripcion")
+
+        if not vehicle_id:
+            conn.close()
+            return {"error": "vehicle_id es obligatorio"}, 400
+
+        if amount is None:
+            conn.close()
+            return {"error": "monto (o precio_venta) es obligatorio"}, 400
+
+        cur = conn.cursor()
+
+        insert_columns = ["vehicle_id", price_column]
+        values = [vehicle_id, amount]
+        optional_fields = {
+            "moneda": moneda,
+            "tasa_cambio": tasa_cambio,
+            "fecha": fecha,
+            "descripcion": descripcion,
+        }
+
+        for col, val in optional_fields.items():
+            if col in sales_columns:
+                insert_columns.append(col)
+                values.append(val)
+
+        if "created_at" in sales_columns:
+            insert_columns.append("created_at")
+            placeholders = ["%s"] * len(values) + ["NOW()"]
+        else:
+            placeholders = ["%s"] * len(values)
+
+        query = f"""
+            INSERT INTO sales ({", ".join(insert_columns)})
+            VALUES ({", ".join(placeholders)})
+            RETURNING id;
+        """
+
+        cur.execute(query, tuple(values))
+        new_id = cur.fetchone()[0]
+
+        conn.commit()
+        cur.close()
+        conn.close()
+
+        return {"status": "OK", "id": new_id}, 201
+
+    except Exception as e:
+        return {"error": str(e)}, 500
+
+
+@app.route("/sales", methods=["GET"])
+def get_sales():
+    try:
+        conn = get_connection()
+        sales_columns = get_table_columns(conn, "sales")
+
+        import psycopg2.extras
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute("SELECT * FROM sales ORDER BY COALESCE(fecha, NOW()) DESC, id DESC;")
+        rows = cur.fetchall()
+
+        cur.close()
+        conn.close()
+
+        data = [normalize_sale(row, sales_columns) for row in rows]
+        return {"status": "OK", "data": data}
+
+    except Exception as e:
+        return {"error": str(e)}, 500
+
+
+@app.route("/vehicles/<int:vehicle_id>/sales", methods=["GET"])
+def get_sales_by_vehicle(vehicle_id):
+    try:
+        conn = get_connection()
+        sales_columns = get_table_columns(conn, "sales")
+
+        import psycopg2.extras
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute("""
+            SELECT *
+            FROM sales
+            WHERE vehicle_id = %s
+            ORDER BY COALESCE(fecha, NOW()) DESC, id DESC;
+        """, (vehicle_id,))
+        rows = cur.fetchall()
+
+        cur.close()
+        conn.close()
+
+        data = [normalize_sale(row, sales_columns) for row in rows]
+        return {"status": "OK", "data": data}
+
+    except Exception as e:
+        return {"error": str(e)}, 500
+
+
+@app.route("/sales/<int:id>", methods=["PATCH"])
+def patch_sale(id):
+    try:
+        data = request.get_json(silent=True) or {}
+
+        conn = get_connection()
+        sales_columns = get_table_columns(conn, "sales")
+        price_column = get_sales_price_column(sales_columns)
+
+        fields = []
+        values = []
+
+        allowed = ["vehicle_id", "moneda", "tasa_cambio", "fecha", "descripcion"]
+        for f in allowed:
+            if f in data and f in sales_columns:
+                fields.append(f"{f} = %s")
+                values.append(data[f])
+
+        if "monto" in data and price_column:
+            fields.append(f"{price_column} = %s")
+            values.append(data["monto"])
+        elif "precio_venta" in data and "precio_venta" in sales_columns:
+            fields.append("precio_venta = %s")
+            values.append(data["precio_venta"])
+
+        if not fields:
+            conn.close()
+            return {"error": "No hay datos para actualizar"}, 400
+
+        values.append(id)
+        cur = conn.cursor()
+        query = f"""
+            UPDATE sales
+            SET {", ".join(fields)}
+            WHERE id = %s
+            RETURNING id;
+        """
+        cur.execute(query, tuple(values))
+        updated = cur.fetchone()
+
+        conn.commit()
+        cur.close()
+        conn.close()
+
+        if updated is None:
+            return {"error": "Venta no encontrada"}, 404
+
+        return {"status": "OK"}
+
+    except Exception as e:
+        return {"error": str(e)}, 500
+
+
+@app.route("/sales/<int:id>", methods=["DELETE"])
+def delete_sale(id):
+    try:
+        conn = get_connection()
+        cur = conn.cursor()
+
+        cur.execute("DELETE FROM sales WHERE id = %s RETURNING id;", (id,))
+        deleted = cur.fetchone()
+
+        conn.commit()
+        cur.close()
+        conn.close()
+
+        if deleted is None:
+            return {"error": "Venta no encontrada"}, 404
+
+        return {"status": "OK", "message": f"Venta {id} eliminada"}
+
+    except Exception as e:
+        return {"error": str(e)}, 500
 
 @app.route("/costs", methods=["POST"])
 def create_cost():
