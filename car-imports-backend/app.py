@@ -62,6 +62,18 @@ def validar_estado(data):
     return None
 
 
+
+
+def format_cost_type_label(cost_type):
+    return cost_type.replace("_", " ").title()
+
+
+def serialize_cost_types_dropdown(cost_types):
+    return [
+        {"value": cost_type, "label": format_cost_type_label(cost_type)}
+        for cost_type in cost_types
+    ]
+
 def validar_tipo_costo(data):
     tipo = data.get("tipo")
 
@@ -384,6 +396,14 @@ def dashboard_summary():
 
 @app.route("/catalogs/cost-types", methods=["GET"])
 def get_cost_types():
+    response_format = request.args.get("format", "list")
+
+    if response_format == "dropdown":
+        return {
+            "status": "OK",
+            "data": serialize_cost_types_dropdown(VALID_TIPOS_COSTO)
+        }
+
     return {"status": "OK", "data": VALID_TIPOS_COSTO}
 
 @app.route("/costs", methods=["POST"])
