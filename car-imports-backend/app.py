@@ -495,6 +495,75 @@ def total_costs(vehicle_id):
     except Exception as e:
         return {"error": str(e)}, 500            
 
+@app.route("/vehicles/profit-real", methods=["GET"])
+def vehicles_real_profit():
+    try:
+        conn = get_connection()
+        cur = conn.cursor()
+
+        query = """
+        WITH costs_by_vehicle AS (
+            SELECT
+                vehicle_id,
+                COALESCE(SUM(monto * COALESCE(tasa_cambio, 1)), 0) AS total_costos
+            FROM costs
+            GROUP BY vehicle_id
+        ),
+        sales_by_vehicle AS (
+            SELECT
+                s.vehicle_id,
+                COALESCE(SUM(
+                    COALESCE(
+                        NULLIF(to_jsonb(s) ->> 'monto', '')::numeric,
+                        NULLIF(to_jsonb(s) ->> 'precio_venta', '')::numeric,
+                        0
+                    ) * COALESCE(
+                        NULLIF(to_jsonb(s) ->> 'tasa_cambio', '')::numeric,
+                        1
+                    )
+                ), 0) AS total_ventas
+            FROM sales s
+            GROUP BY s.vehicle_id
+        )
+        SELECT
+            v.id,
+            v.vin,
+            v.marca,
+            v.modelo,
+            v.anio,
+            COALESCE(sbv.total_ventas, 0) AS total_ventas,
+            COALESCE(cbv.total_costos, 0) AS total_costos,
+            COALESCE(sbv.total_ventas, 0) - COALESCE(cbv.total_costos, 0) AS ganancia_real
+        FROM vehicles v
+        LEFT JOIN costs_by_vehicle cbv ON cbv.vehicle_id = v.id
+        LEFT JOIN sales_by_vehicle sbv ON sbv.vehicle_id = v.id
+        ORDER BY v.id;
+        """
+
+        cur.execute(query)
+        result = cur.fetchall()
+
+        cur.close()
+        conn.close()
+
+        data = []
+        for row in result:
+            data.append({
+                "vehicle_id": row[0],
+                "vin": row[1],
+                "marca": row[2],
+                "modelo": row[3],
+                "anio": row[4],
+                "total_ventas": float(row[5]),
+                "total_costos": float(row[6]),
+                "ganancia_real": float(row[7]),
+            })
+
+        return {"status": "OK", "data": data}
+
+    except Exception as e:
+        return {"error": str(e)}, 500
+
 
 if __name__ == "__main__":
     Swagger(app)
