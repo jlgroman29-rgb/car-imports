@@ -29,7 +29,6 @@ function App() {
     fetch(`http://127.0.0.1:5000/vehicles/${vehicleId}/costs`)
       .then(res => res.json())
       .then(data => {
-        console.log("COSTS BACKEND:", data);
         setCosts(data.data || []);
       })
       .catch(err => console.error("Error cargando costos:", err));
@@ -53,30 +52,50 @@ function App() {
     const url = editingCostId
       ? `http://127.0.0.1:5000/costs/${editingCostId}`
       : "http://127.0.0.1:5000/costs";
+
     const method = editingCostId ? "PATCH" : "POST";
+
+    const payload = {
+      ...costForm,
+      monto: Number(costForm.monto),
+      tasa_cambio: costForm.tasa_cambio !== ""
+        ? Number(costForm.tasa_cambio)
+        : null,
+      ...(editingCostId ? {} : { vehicle_id: selectedVehicle.id })
+    };
+
+    console.log("EDITING COST ID:", editingCostId);
+    console.log("METHOD:", method);
+    console.log("URL:", url);
+    console.log("PAYLOAD:", payload);
 
     fetch(url, {
       method,
       headers: {
         "Content-Type": "application/json"
       },
-      body: JSON.stringify({
-        ...costForm,
-        monto: Number(costForm.monto),
-        tasa_cambio: costForm.tasa_cambio !== ""
-          ? Number(costForm.tasa_cambio)
-          : null,
-        ...(editingCostId ? {} : { vehicle_id: selectedVehicle.id })
-      })
+      body: JSON.stringify(payload)
     })
-      .then((res) => res.json())
+      .then(async (res) => {
+        const data = await res.json();
+        console.log("RESPUESTA BACKEND COST:", data);
+
+        if (!res.ok) {
+          throw new Error(data.message || data.error || "Error guardando costo");
+        }
+
+        return data;
+      })
       .then(() => {
         if (selectedVehicle) {
           loadCosts(selectedVehicle.id);
         }
         resetCostForm();
       })
-      .catch((err) => console.error(err));
+      .catch((err) => {
+        console.error("ERROR GUARDANDO COSTO:", err);
+        alert(err.message);
+      });
   };
   const [search, setSearch] = useState("");
   const [estadoFilter, setEstadoFilter] = useState("");
@@ -105,17 +124,25 @@ function App() {
     setEditingCostId(null);
   };
   const handleEditCost = (cost) => {
+    console.log("COST A EDITAR:", cost);
+
     setCostForm({
       tipo: cost.tipo || "",
-      monto: cost.monto !== null && cost.monto !== undefined ? String(cost.monto) : "",
+      monto:
+        cost.monto !== null && cost.monto !== undefined
+          ? String(cost.monto)
+          : "",
       moneda: cost.moneda || "USD",
       tasa_cambio:
         cost.tasa_cambio !== null && cost.tasa_cambio !== undefined
           ? String(cost.tasa_cambio)
           : "",
-      fecha: cost.fecha || "",
+      fecha: cost.fecha
+        ? new Date(cost.fecha).toISOString().split("T")[0]
+        : "",
       descripcion: cost.descripcion || ""
     });
+
     setEditingCostId(cost.id);
   };
   const handleDeleteCost = (costId) => {
@@ -547,13 +574,22 @@ function App() {
         <div style={{ marginTop: "30px" }}>
           <h3>💸 Costos del vehículo: {selectedVehicle.marca} {selectedVehicle.modelo}</h3>
           <form onSubmit={handleAddCost} style={{ marginBottom: "15px" }}>
-            <input
+            <select
               name="tipo"
-              placeholder="Tipo (subasta, grua, etc)"
               value={costForm.tipo}
               onChange={handleCostChange}
               required
-            />
+            >
+              <option value="compra">Compra</option>
+              <option value="flete">flete</option>
+              <option value="aduana">aduana</option>
+              <option value="impuestos">impuestos</option>
+              <option value="reparacion">reparacion</option>
+              <option value="transporte_local">transporte_local</option>
+              <option value="comision">comision</option>
+              <option value="documentacion">documentacion</option>
+              <option value="otros">otros</option>
+            </select>
 
             <input
               name="monto"
@@ -563,8 +599,6 @@ function App() {
               onChange={handleCostChange}
               required
             />
-
-
             <input
               name="moneda"
               placeholder="Moneda (DOP, USD)"

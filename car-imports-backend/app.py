@@ -23,7 +23,7 @@ VALID_TIPOS_COSTO = [
     "reparacion",
     "transporte_local",
     "comision",
-    "documentacion",
+    "documentacion","compra",
     "otros",
 ]
 def get_connection():
@@ -753,14 +753,17 @@ def delete_cost(id):
 
     except Exception as e:
         return {"error": str(e)}, 500
-
 @app.route("/costs/<int:id>", methods=["PATCH"])
 def patch_cost(id):
     try:
         data = request.get_json(silent=True) or {}
 
+        print("PATCH COST ID:", id)
+        print("PATCH COST DATA:", data)
+
         validation_error = validar_tipo_costo(data)
         if validation_error:
+            print("VALIDATION ERROR:", validation_error)
             return validation_error
 
         fields = []
@@ -772,6 +775,9 @@ def patch_cost(id):
             if f in data:
                 fields.append(f"{f} = %s")
                 values.append(data[f])
+
+        print("FIELDS:", fields)
+        print("VALUES BEFORE ID:", values)
 
         if not fields:
             return {
@@ -791,12 +797,17 @@ def patch_cost(id):
         RETURNING id;
         """
 
+        print("QUERY:", query)
+        print("VALUES FINAL:", values)
+
         cur.execute(query, tuple(values))
         updated = cur.fetchone()
 
         conn.commit()
         cur.close()
         conn.close()
+
+        print("UPDATED:", updated)
 
         if updated is None:
             return {
@@ -810,6 +821,7 @@ def patch_cost(id):
         }
 
     except Exception as e:
+        print("PATCH COST ERROR:", str(e))
         return {"error": str(e)}, 500
 
 @app.route("/vehicles/<int:vehicle_id>/costs/total", methods=["GET"])
