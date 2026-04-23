@@ -239,6 +239,12 @@ h1 {
   filter: brightness(0.95);
 }
 
+.btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
+  filter: none;
+}
+
 .costs-panel {
   border: 1px solid #bfdbfe;
 }
@@ -296,6 +302,14 @@ h1 {
 .report-empty-cell {
   text-align: center;
   padding: 20px !important;
+}
+
+.report-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
 }
 
 @media (max-width: 1024px) {
