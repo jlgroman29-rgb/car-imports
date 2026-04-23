@@ -358,11 +358,6 @@ function App() {
   };
 
   const handleExportReport = async (format) => {
-    if (format === EXPORT_FORMATS.PDF) {
-      alert("La exportación a PDF estará disponible próximamente.");
-      return;
-    }
-
     if (loadingReport) {
       return;
     }
@@ -669,8 +664,13 @@ function App() {
               >
                 {exportingReport ? "Exportando..." : "Exportar Excel (.xlsx)"}
               </button>
-              <button className="btn btn-secondary" type="button" onClick={() => handleExportReport(EXPORT_FORMATS.PDF)}>
-                Exportar PDF (próximamente)
+              <button
+                className="btn btn-secondary"
+                type="button"
+                onClick={() => handleExportReport(EXPORT_FORMATS.PDF)}
+                disabled={loadingReport || exportingReport || reportRows.length === 0}
+              >
+                {exportingReport ? "Exportando..." : "Exportar PDF"}
               </button>
             </div>
           </div>
