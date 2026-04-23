@@ -461,9 +461,6 @@ function App() {
                 </option>
               ))}
             </select>
-            <button className="btn btn-secondary" type="button" onClick={loadReport}>
-              Ver reporte de costos
-            </button>
           </div>
         </div>
 
@@ -516,72 +513,6 @@ function App() {
           </table>
         </div>
       </section>
-
-      {reportVisible && (
-        <section className="panel report-panel">
-          <div className="panel-title-row">
-            <h2>Reporte de costos por vehículo</h2>
-            {loadingReport ? <p className="cost-total">Cargando reporte...</p> : null}
-          </div>
-
-          {!loadingReport && reportRows.length === 0 && <p className="report-empty">No hay vehículos para mostrar.</p>}
-
-          {!loadingReport &&
-            reportRows.map((row) => (
-              <article key={row.vehicle.id} className="vehicle-report-card">
-                <header className="vehicle-report-header">
-                  <div className="vehicle-report-main">
-                    <h3>
-                      {row.vehicle.marca} {row.vehicle.modelo} ({row.vehicle.anio})
-                    </h3>
-                    <p>VIN: {row.vehicle.vin}</p>
-                  </div>
-                  <div className="vehicle-report-meta">
-                    <span className="status-pill">{estadoLabel(row.vehicle.estado)}</span>
-                    <p>
-                      Total costos: <strong>{formatMoney(row.totalCost)}</strong>
-                    </p>
-                  </div>
-                </header>
-
-                <div className="table-wrapper">
-                  <table className="data-table report-table">
-                    <thead>
-                      <tr>
-                        <th>Tipo</th>
-                        <th className="numeric">Monto</th>
-                        <th>Moneda</th>
-                        <th className="numeric">Tasa cambio</th>
-                        <th>Fecha</th>
-                        <th>Descripción</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {row.costs.length === 0 ? (
-                        <tr>
-                          <td colSpan={6} className="report-empty-cell">
-                            Este vehículo no tiene costos registrados.
-                          </td>
-                        </tr>
-                      ) : (
-                        row.costs.map((cost) => (
-                          <tr key={cost.id}>
-                            <td>{estadoLabel(cost.tipo)}</td>
-                            <td className="numeric">{formatMoney(cost.monto)}</td>
-                            <td>{cost.moneda || "—"}</td>
-                            <td className="numeric">{cost.tasa_cambio ?? "—"}</td>
-                            <td>{formatDate(cost.fecha)}</td>
-                            <td>{cost.descripcion || "—"}</td>
-                          </tr>
-                        ))
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              </article>
-            ))}
-        </section>
-      )}
 
       {selectedVehicle && (
         <section className="panel costs-panel">
@@ -682,6 +613,79 @@ function App() {
               </tbody>
             </table>
           </div>
+
+          <div className="panel-title-row">
+            <h2>Listado de vehículos</h2>
+            <button className="btn btn-secondary" type="button" onClick={loadReport}>
+              Ver reporte de costos
+            </button>
+          </div>
+        </section>
+      )}
+
+      {reportVisible && (
+        <section className="panel report-panel">
+          <div className="panel-title-row">
+            <h2>Reporte de costos por vehículo</h2>
+            {loadingReport ? <p className="cost-total">Cargando reporte...</p> : null}
+          </div>
+
+          {!loadingReport && reportRows.length === 0 && <p className="report-empty">No hay vehículos para mostrar.</p>}
+
+          {!loadingReport &&
+            reportRows.map((row) => (
+              <article key={row.vehicle.id} className="vehicle-report-card">
+                <header className="vehicle-report-header">
+                  <div className="vehicle-report-main">
+                    <h3>
+                      {row.vehicle.marca} {row.vehicle.modelo} ({row.vehicle.anio})
+                    </h3>
+                    <p>VIN: {row.vehicle.vin}</p>
+                  </div>
+                  <div className="vehicle-report-meta">
+                    <span className="status-pill">{estadoLabel(row.vehicle.estado)}</span>
+                    <p>
+                      Total costos: <strong>{formatMoney(row.totalCost)}</strong>
+                    </p>
+                  </div>
+                </header>
+
+                <div className="table-wrapper">
+                  <table className="data-table report-table">
+                    <thead>
+                      <tr>
+                        <th>Tipo</th>
+                        <th className="numeric">Monto</th>
+                        <th>Moneda</th>
+                        <th className="numeric">Tasa cambio</th>
+                        <th>Fecha</th>
+                        <th>Descripción</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {row.costs.length === 0 ? (
+                        <tr>
+                          <td colSpan={6} className="report-empty-cell">
+                            Este vehículo no tiene costos registrados.
+                          </td>
+                        </tr>
+                      ) : (
+                        row.costs.map((cost) => (
+                          <tr key={cost.id}>
+                            <td>{estadoLabel(cost.tipo)}</td>
+                            <td className="numeric">{formatMoney(cost.monto)}</td>
+                            <td>{cost.moneda || "—"}</td>
+                            <td className="numeric">{cost.tasa_cambio ?? "—"}</td>
+                            <td>{formatDate(cost.fecha)}</td>
+                            <td>{cost.descripcion || "—"}</td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </article>
+            ))}
         </section>
       )}
     </div>
