@@ -364,8 +364,112 @@ const exportReportToXlsx = ({ reportRows, estadoLabel }) => {
   downloadBlob(blob, `reporte-costos-vehiculos-${dateSuffix}.xlsx`);
 };
 
-const exportReportToPdf = () => {
-  throw new Error("La exportación a PDF no está implementada todavía.");
+const formatAmount = (value) =>
+  new Intl.NumberFormat("es-DO", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  }).format(sanitizeNumber(value));
+
+const buildPdfHtml = ({ reportRows, estadoLabel }) => {
+  const generatedAt = new Date().toLocaleString("es-DO");
+  const vehicleCards = reportRows
+    .map((row) => {
+      const costsRows = row.costs.length
+        ? row.costs
+            .map(
+              (cost) => `<tr>
+          <td>${escapeXml(estadoLabel(cost.tipo) || "—")}</td>
+          <td class="num">${formatAmount(cost.monto)}</td>
+          <td>${escapeXml(cost.moneda || "—")}</td>
+          <td class="num">${cost.tasa_cambio ?? "—"}</td>
+          <td>${escapeXml(formatIsoDate(cost.fecha) || "—")}</td>
+          <td>${escapeXml(cost.descripcion || "—")}</td>
+        </tr>`
+            )
+            .join("")
+        : `<tr><td colspan="6" class="empty">Este vehículo no tiene costos registrados.</td></tr>`;
+
+      return `<section class="card">
+      <header class="card-head">
+        <div>
+          <h2>${escapeXml(row.vehicle.marca || "—")} ${escapeXml(row.vehicle.modelo || "—")} (${escapeXml(
+            row.vehicle.anio || "—"
+          )})</h2>
+          <p>VIN: ${escapeXml(row.vehicle.vin || "—")}</p>
+        </div>
+        <div class="meta">
+          <p>Estado: <strong>${escapeXml(estadoLabel(row.vehicle.estado) || "—")}</strong></p>
+          <p>Total costos: <strong>${formatAmount(row.totalCost)}</strong></p>
+        </div>
+      </header>
+      <table>
+        <thead>
+          <tr>
+            <th>Tipo</th>
+            <th>Monto</th>
+            <th>Moneda</th>
+            <th>Tasa cambio</th>
+            <th>Fecha</th>
+            <th>Descripción</th>
+          </tr>
+        </thead>
+        <tbody>${costsRows}</tbody>
+      </table>
+    </section>`;
+    })
+    .join("");
+
+  return `<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <title>Reporte de costos por vehículo</title>
+  <style>
+    body { font-family: Arial, sans-serif; color: #1f2937; margin: 24px; }
+    h1 { margin: 0 0 6px; }
+    .subtitle { color: #4b5563; margin: 0 0 18px; }
+    .card { page-break-inside: avoid; border: 1px solid #d1d5db; border-radius: 10px; padding: 14px; margin-bottom: 16px; }
+    .card-head { display: flex; justify-content: space-between; gap: 16px; margin-bottom: 10px; }
+    .card-head h2 { margin: 0 0 4px; font-size: 18px; }
+    .card-head p { margin: 2px 0; }
+    .meta { text-align: right; }
+    table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    th, td { border: 1px solid #e5e7eb; padding: 6px 8px; text-align: left; }
+    th { background: #eff6ff; }
+    td.num { text-align: right; }
+    .empty { text-align: center; color: #6b7280; }
+    @media print {
+      body { margin: 10mm; }
+      .card { break-inside: avoid; }
+    }
+  </style>
+</head>
+<body>
+  <h1>Reporte de costos por vehículo</h1>
+  <p class="subtitle">Generado: ${escapeXml(generatedAt)} | Vehículos incluidos: ${reportRows.length}</p>
+  ${vehicleCards}
+  <script>
+    window.addEventListener("load", () => {
+      window.print();
+    });
+  </script>
+</body>
+</html>`;
+};
+
+const exportReportToPdf = ({ reportRows, estadoLabel }) => {
+  if (!reportRows.length) {
+    throw new Error("No hay datos para exportar.");
+  }
+
+  const printWindow = window.open("", "_blank", "noopener,noreferrer");
+  if (!printWindow) {
+    throw new Error("No se pudo abrir la ventana de impresión. Habilita los pop-ups e inténtalo de nuevo.");
+  }
+
+  printWindow.document.open();
+  printWindow.document.write(buildPdfHtml({ reportRows, estadoLabel }));
+  printWindow.document.close();
 };
 
 export const exportCostReport = ({ format = EXPORT_FORMATS.XLSX, reportRows, estadoLabel }) => {
@@ -375,7 +479,7 @@ export const exportCostReport = ({ format = EXPORT_FORMATS.XLSX, reportRows, est
   }
 
   if (format === EXPORT_FORMATS.PDF) {
-    exportReportToPdf();
+    exportReportToPdf({ reportRows, estadoLabel });
     return;
   }
 
