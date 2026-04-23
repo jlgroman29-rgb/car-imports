@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, Cell, ResponsiveContainer } from "recharts";
 import "./App.css";
+import { exportCostReport, EXPORT_FORMATS } from "./reportExport";
 
 const ESTADOS = [
   "inventario",
@@ -85,6 +86,7 @@ function App() {
   const [reportRows, setReportRows] = useState([]);
   const [loadingReport, setLoadingReport] = useState(false);
   const [reportVisible, setReportVisible] = useState(false);
+  const [exportingReport, setExportingReport] = useState(false);
   const [costForm, setCostForm] = useState({
     tipo: "",
     monto: "",
@@ -352,6 +354,36 @@ function App() {
       alert("No se pudo cargar el reporte de costos. Intenta nuevamente.");
     } finally {
       setLoadingReport(false);
+    }
+  };
+
+  const handleExportReport = async (format) => {
+    if (format === EXPORT_FORMATS.PDF) {
+      alert("La exportación a PDF estará disponible próximamente.");
+      return;
+    }
+
+    if (loadingReport) {
+      return;
+    }
+
+    if (!reportRows.length) {
+      alert("Primero genera el reporte para poder exportarlo.");
+      return;
+    }
+
+    setExportingReport(true);
+    try {
+      exportCostReport({
+        format,
+        reportRows,
+        estadoLabel
+      });
+    } catch (error) {
+      console.error("Error exportando reporte:", error);
+      alert(error.message || "No se pudo exportar el reporte.");
+    } finally {
+      setExportingReport(false);
     }
   };
 
@@ -627,7 +659,20 @@ function App() {
         <section className="panel report-panel">
           <div className="panel-title-row">
             <h2>Reporte de costos por vehículo</h2>
-            {loadingReport ? <p className="cost-total">Cargando reporte...</p> : null}
+            <div className="report-actions">
+              {loadingReport ? <p className="cost-total">Cargando reporte...</p> : null}
+              <button
+                className="btn btn-primary"
+                type="button"
+                onClick={() => handleExportReport(EXPORT_FORMATS.XLSX)}
+                disabled={loadingReport || exportingReport || reportRows.length === 0}
+              >
+                {exportingReport ? "Exportando..." : "Exportar Excel (.xlsx)"}
+              </button>
+              <button className="btn btn-secondary" type="button" onClick={() => handleExportReport(EXPORT_FORMATS.PDF)}>
+                Exportar PDF (próximamente)
+              </button>
+            </div>
           </div>
 
           {!loadingReport && reportRows.length === 0 && <p className="report-empty">No hay vehículos para mostrar.</p>}
