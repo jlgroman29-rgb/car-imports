@@ -1,5 +1,41 @@
 import React, { useState, useEffect } from "react";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, Cell, ResponsiveContainer } from "recharts";
+import "./App.css";
+
+const ESTADOS = [
+  "inventario",
+  "comprado",
+  "en_transito",
+  "en_aduana",
+  "en_reparacion",
+  "disponible",
+  "vendido"
+];
+
+const TIPOS_COSTO = [
+  "compra",
+  "flete",
+  "aduana",
+  "impuestos",
+  "reparacion",
+  "transporte_local",
+  "comision",
+  "documentacion",
+  "otros"
+];
+
+const coloresEstado = {
+  inventario: "#3b82f6",
+  comprado: "#8b5cf6",
+  en_transito: "#f59e0b",
+  en_aduana: "#f97316",
+  en_reparacion: "#ef4444",
+  disponible: "#10b981",
+  vendido: "#6b7280"
+};
+
+const estadoLabel = (estado) => estado.replaceAll("_", " ");
+
 function App() {
   const [vehicles, setVehicles] = useState([]);
   const [form, setForm] = useState({
@@ -11,7 +47,6 @@ function App() {
     precio_estimado: ""
   });
 
-  // 🔥 Cargar vehículos
   const loadVehicles = () => {
     fetch("http://127.0.0.1:5000/vehicles")
       .then((res) => res.json())
@@ -20,27 +55,54 @@ function App() {
         setVehicles(data.data || []);
       });
   };
+
   const loadCosts = (vehicleId) => {
-    // limpiar antes de cargar
     setCosts([]);
     setTotalCost(0);
 
-    // 🔥 traer lista de costos
     fetch(`http://127.0.0.1:5000/vehicles/${vehicleId}/costs`)
-      .then(res => res.json())
-      .then(data => {
+      .then((res) => res.json())
+      .then((data) => {
         setCosts(data.data || []);
       })
-      .catch(err => console.error("Error cargando costos:", err));
+      .catch((err) => console.error("Error cargando costos:", err));
 
-    // 🔥 traer total
     fetch(`http://127.0.0.1:5000/vehicles/${vehicleId}/costs/total`)
-      .then(res => res.json())
-      .then(data => {
+      .then((res) => res.json())
+      .then((data) => {
         setTotalCost(data.total_cost || 0);
       })
-      .catch(err => console.error("Error total costos:", err));
+      .catch((err) => console.error("Error total costos:", err));
   };
+
+  const [search, setSearch] = useState("");
+  const [estadoFilter, setEstadoFilter] = useState("");
+  const [editingId, setEditingId] = useState(null);
+  const [costs, setCosts] = useState([]);
+  const [selectedVehicle, setSelectedVehicle] = useState(null);
+  const [totalCost, setTotalCost] = useState(0);
+  const [editingCostId, setEditingCostId] = useState(null);
+  const [costForm, setCostForm] = useState({
+    tipo: "",
+    monto: "",
+    moneda: "DOP",
+    tasa_cambio: "",
+    fecha: "",
+    descripcion: ""
+  });
+
+  const resetCostForm = () => {
+    setCostForm({
+      tipo: "",
+      monto: "",
+      moneda: "USD",
+      tasa_cambio: "",
+      fecha: "",
+      descripcion: ""
+    });
+    setEditingCostId(null);
+  };
+
   const handleAddCost = (e) => {
     e.preventDefault();
 
@@ -58,9 +120,7 @@ function App() {
     const payload = {
       ...costForm,
       monto: Number(costForm.monto),
-      tasa_cambio: costForm.tasa_cambio !== ""
-        ? Number(costForm.tasa_cambio)
-        : null,
+      tasa_cambio: costForm.tasa_cambio !== "" ? Number(costForm.tasa_cambio) : null,
       ...(editingCostId ? {} : { vehicle_id: selectedVehicle.id })
     };
 
@@ -97,54 +157,23 @@ function App() {
         alert(err.message);
       });
   };
-  const [search, setSearch] = useState("");
-  const [estadoFilter, setEstadoFilter] = useState("");
-  const [editingId, setEditingId] = useState(null);
-  const [costs, setCosts] = useState([]);
-  const [selectedVehicle, setSelectedVehicle] = useState(null);
-  const [totalCost, setTotalCost] = useState(0);
-  const [editingCostId, setEditingCostId] = useState(null);
-  const [costForm, setCostForm] = useState({
-    tipo: "",
-    monto: "",
-    moneda: "DOP",
-    tasa_cambio: "",
-    fecha: "",
-    descripcion: ""
-  });
-  const resetCostForm = () => {
-    setCostForm({
-      tipo: "",
-      monto: "",
-      moneda: "USD",
-      tasa_cambio: "",
-      fecha: "",
-      descripcion: ""
-    });
-    setEditingCostId(null);
-  };
+
   const handleEditCost = (cost) => {
     console.log("COST A EDITAR:", cost);
 
     setCostForm({
       tipo: cost.tipo || "",
-      monto:
-        cost.monto !== null && cost.monto !== undefined
-          ? String(cost.monto)
-          : "",
+      monto: cost.monto !== null && cost.monto !== undefined ? String(cost.monto) : "",
       moneda: cost.moneda || "USD",
       tasa_cambio:
-        cost.tasa_cambio !== null && cost.tasa_cambio !== undefined
-          ? String(cost.tasa_cambio)
-          : "",
-      fecha: cost.fecha
-        ? new Date(cost.fecha).toISOString().split("T")[0]
-        : "",
+        cost.tasa_cambio !== null && cost.tasa_cambio !== undefined ? String(cost.tasa_cambio) : "",
+      fecha: cost.fecha ? new Date(cost.fecha).toISOString().split("T")[0] : "",
       descripcion: cost.descripcion || ""
     });
 
     setEditingCostId(cost.id);
   };
+
   const handleDeleteCost = (costId) => {
     if (!window.confirm("¿Seguro que deseas eliminar este costo?")) return;
 
@@ -163,6 +192,7 @@ function App() {
       })
       .catch((err) => console.error(err));
   };
+
   const handleEdit = (vehicle) => {
     setForm({
       vin: vehicle.vin || "",
@@ -170,17 +200,15 @@ function App() {
       modelo: vehicle.modelo || "",
       anio: vehicle.anio || "",
       estado: vehicle.estado || "inventario",
-
-      // 🔥 FIX CORRECTO
       precio_estimado:
-        vehicle.precio_estimado !== null &&
-          vehicle.precio_estimado !== undefined
+        vehicle.precio_estimado !== null && vehicle.precio_estimado !== undefined
           ? String(vehicle.precio_estimado)
           : ""
     });
 
     setEditingId(vehicle.id);
   };
+
   useEffect(() => {
     loadVehicles();
   }, []);
@@ -193,18 +221,18 @@ function App() {
     })
       .then((res) => res.json())
       .then(() => {
-        loadVehicles(); // recargar tabla
+        loadVehicles();
       })
       .catch((err) => console.error(err));
   };
 
-  // 🔥 Manejar cambios en inputs
   const handleChange = (e) => {
     setForm({
       ...form,
       [e.target.name]: e.target.value
     });
   };
+
   const handleCostChange = (e) => {
     setCostForm({
       ...costForm,
@@ -212,7 +240,6 @@ function App() {
     });
   };
 
-  // 🔥 Crear vehículo
   const handleSubmit = (e) => {
     e.preventDefault();
 
@@ -223,24 +250,19 @@ function App() {
     const method = editingId ? "PATCH" : "POST";
 
     fetch(url, {
-      method: method,
+      method,
       headers: {
         "Content-Type": "application/json"
       },
       body: JSON.stringify({
         ...form,
         anio: parseInt(form.anio),
-        precio_estimado:
-          form.precio_estimado === ""
-            ? undefined
-            : Number(form.precio_estimado)
+        precio_estimado: form.precio_estimado === "" ? undefined : Number(form.precio_estimado)
       })
     })
       .then((res) => res.json())
       .then(() => {
         loadVehicles();
-
-        // reset
         setForm({
           vin: "",
           marca: "",
@@ -254,50 +276,28 @@ function App() {
       })
       .catch((err) => console.error(err));
   };
+
   const filteredVehicles = (vehicles || []).filter((v) => {
     const matchSearch =
       v.marca.toLowerCase().includes(search.toLowerCase()) ||
       v.modelo.toLowerCase().includes(search.toLowerCase());
 
-    const matchEstado = estadoFilter
-      ? v.estado === estadoFilter
-      : true;
+    const matchEstado = estadoFilter ? v.estado === estadoFilter : true;
 
     return matchSearch && matchEstado;
   });
-  const totalInventario = vehicles.reduce((acc, v) => {
-    return acc + Number(v.precio_estimado || 0);
-  }, 0);
-  const disponibles = vehicles.filter(v => v.estado === "disponible").length;
 
-  const vendidos = vehicles.filter(v => v.estado === "vendido").length;
-
+  const totalInventario = vehicles.reduce((acc, v) => acc + Number(v.precio_estimado || 0), 0);
+  const disponibles = vehicles.filter((v) => v.estado === "disponible").length;
+  const vendidos = vehicles.filter((v) => v.estado === "vendido").length;
   const valorDisponible = vehicles
-    .filter(v => v.estado === "disponible")
+    .filter((v) => v.estado === "disponible")
     .reduce((acc, v) => acc + Number(v.precio_estimado || 0), 0);
-  const estados = [
-    "inventario",
-    "comprado",
-    "en_transito",
-    "en_aduana",
-    "en_reparacion",
-    "disponible",
-    "vendido"
-  ];
 
-  const dataChart = estados.map((estado) => ({
+  const dataChart = ESTADOS.map((estado) => ({
     estado,
     cantidad: vehicles.filter((v) => v.estado === estado).length
   }));
-  const coloresEstado = {
-    inventario: "#3498db",
-    comprado: "#9b59b6",
-    en_transito: "#f1c40f",
-    en_aduana: "#e67e22",
-    en_reparacion: "#e74c3c",
-    disponible: "#2ecc71",
-    vendido: "#95a5a6"
-  };
 
   const formatMoney = (value) => {
     return new Intl.NumberFormat("es-DO", {
@@ -307,291 +307,187 @@ function App() {
     }).format(value || 0);
   };
 
-  const cardStyle = {
-    background: "#ffffff",
-    padding: "15px",
-    borderRadius: "10px",
-    boxShadow: "0 6px 18px rgba(0,0,0,0.12)",
-    textAlign: "center",
-    minWidth: "140px",
-    transition: "all 0.3s ease",
-  };
-  const cardStyles = {
-    total: { background: "#2c3e50", color: "#fff" },
-    dinero: { background: "#27ae60", color: "#fff" },
-    disponible: { background: "#3498db", color: "#fff" },
-    vendido: { background: "#7f8c8d", color: "#fff" }
-  };
+  const metricCards = [
+    { title: "Total vehículos", value: vehicles.length, icon: "🚗", variant: "neutral" },
+    { title: "Valor inventario", value: formatMoney(totalInventario), icon: "💰", variant: "success" },
+    { title: "Disponibles", value: disponibles, icon: "🟢", variant: "info" },
+    { title: "Vendidos", value: vendidos, icon: "⚫", variant: "dark" },
+    { title: "Valor disponible", value: formatMoney(valorDisponible), icon: "💵", variant: "primary" }
+  ];
+
   return (
-    <div style={{ padding: "20px" }}>
-      <h1>🚗 Inventario de Vehículos</h1>
-      <div
-        style={{
-          display: "flex",
-          gap: "15px",
-          overflowX: "auto",
-          paddingBottom: "10px"
-        }}
-      >
-
-        <div
-          style={{ ...cardStyle, ...cardStyles.total }}
-          onMouseEnter={(e) => (e.currentTarget.style.transform = "scale(1.05)")}
-          onMouseLeave={(e) => (e.currentTarget.style.transform = "scale(1)")}
-        >
-          <h4 style={{ margin: 0 }}>🚗 Total Vehículos</h4>
-          <h2>{vehicles.length}</h2>
+    <div className="app-shell">
+      <header className="page-header">
+        <div>
+          <p className="eyebrow">Car Imports Dashboard</p>
+          <h1>Inventario de Vehículos</h1>
+          <p className="page-subtitle">Gestión de inventario, estados y costos por unidad.</p>
         </div>
+      </header>
 
-        <div
-          style={{ ...cardStyle, ...cardStyles.dinero }}
-          onMouseEnter={(e) => (e.currentTarget.style.transform = "scale(1.05)")}
-          onMouseLeave={(e) => (e.currentTarget.style.transform = "scale(1)")}
-        >
-          <h4 style={{ margin: 0 }}>💰 Valor Inventario</h4>
-          <h2 style={{ margin: "5px 0", fontSize: "20px" }}>
-            {formatMoney(totalInventario)}
-          </h2>
-        </div>
-        <div style={{ ...cardStyle, ...cardStyles.disponible }}
-          onMouseEnter={(e) => (e.currentTarget.style.transform = "scale(1.05)")}
-          onMouseLeave={(e) => (e.currentTarget.style.transform = "scale(1)")}
-        >
-          <h4 style={{ margin: 0 }}>🟢 Disponibles</h4>
-          <h2>{disponibles}</h2>
+      <section className="card-section">
+        <div className="metrics-grid">
+          {metricCards.map((card) => (
+            <article key={card.title} className={`metric-card metric-${card.variant}`}>
+              <span className="metric-icon">{card.icon}</span>
+              <p className="metric-title">{card.title}</p>
+              <p className="metric-value">{card.value}</p>
+            </article>
+          ))}
         </div>
 
-        <div style={{ ...cardStyle, ...cardStyles.vendido }}
-          onMouseEnter={(e) => (e.currentTarget.style.transform = "scale(1.05)")}
-          onMouseLeave={(e) => (e.currentTarget.style.transform = "scale(1)")}
-        >
-          <h4 style={{ margin: 0 }}>⚫ Vendidos</h4>
-          <h2>{vendidos}</h2>
+        <div className="chart-panel">
+          <div className="panel-title-row">
+            <h3>Vehículos por estado</h3>
+          </div>
+          <div className="chart-wrap">
+            <ResponsiveContainer width="100%" height={240}>
+              <BarChart data={dataChart}>
+                <XAxis dataKey="estado" tickFormatter={estadoLabel} interval={0} angle={-20} textAnchor="end" height={70} />
+                <YAxis allowDecimals={false} />
+                <Tooltip formatter={(value) => [value, "Cantidad"]} />
+                <Bar dataKey="cantidad" radius={[8, 8, 0, 0]}>
+                  {dataChart.map((entry, index) => (
+                    <Cell key={`cell-${index}`} fill={coloresEstado[entry.estado] || "#8884d8"} />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+          <div className="status-chip-row">
+            {ESTADOS.map((estado) => {
+              const count = vehicles.filter((v) => v.estado === estado).length;
+              return (
+                <span key={estado} className="status-chip">
+                  {estadoLabel(estado)}: <strong>{count}</strong>
+                </span>
+              );
+            })}
+          </div>
         </div>
+      </section>
 
-        <div style={{ ...cardStyle, ...cardStyles.dinero }}
-          onMouseEnter={(e) => (e.currentTarget.style.transform = "scale(1.05)")}
-          onMouseLeave={(e) => (e.currentTarget.style.transform = "scale(1)")}
-        >
-          <h4 style={{ margin: 0 }}>💵 Valor Disponible</h4>
-          <h2>{formatMoney(valorDisponible)}</h2>
-        </div>
-        <div style={{ marginBottom: "30px" }}>
-          <h3>Vehículos por Estado</h3>
-          <div
-            style={{
-              width: "100%",
-              display: "flex",
-              justifyContent: "left",
-              marginBottom: "20px"
-            }}
-          >
-            <BarChart width={200} height={100} data={dataChart}>
-              <XAxis dataKey="estado" angle={-20} textAnchor="end" />
-              <YAxis />
-              <Tooltip />
-              <Bar dataKey="cantidad">
-                {dataChart.map((entry, index) => (
-                  <Cell
-                    key={`cell-${index}`}
-                    fill={coloresEstado[entry.estado] || "#8884d8"}
-                  />
-                ))}
-              </Bar>
-            </BarChart>
+      <section className="panel">
+        <h2>{editingId ? "Editar vehículo" : "Registrar vehículo"}</h2>
+        <form onSubmit={handleSubmit} className="form-grid">
+          <input className="input-control" name="vin" placeholder="VIN" value={form.vin} onChange={handleChange} required />
+          <input className="input-control" name="marca" placeholder="Marca" value={form.marca} onChange={handleChange} required />
+          <input className="input-control" name="modelo" placeholder="Modelo" value={form.modelo} onChange={handleChange} required />
+          <input className="input-control" name="anio" placeholder="Año" value={form.anio} onChange={handleChange} required />
+          <input
+            className="input-control"
+            type="number"
+            name="precio_estimado"
+            placeholder="Precio estimado"
+            value={form.precio_estimado}
+            onChange={handleChange}
+          />
+          <select className="input-control" name="estado" value={form.estado} onChange={handleChange}>
+            {ESTADOS.map((estado) => (
+              <option key={estado} value={estado}>
+                {estadoLabel(estado)}
+              </option>
+            ))}
+          </select>
+          <button className="btn btn-primary" type="submit">
+            {editingId ? "Actualizar" : "Crear"}
+          </button>
+        </form>
+      </section>
+
+      <section className="panel">
+        <div className="panel-title-row">
+          <h2>Listado de vehículos</h2>
+          <div className="filters-row">
+            <input
+              className="input-control"
+              placeholder="Buscar por marca o modelo..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+            <select className="input-control" value={estadoFilter} onChange={(e) => setEstadoFilter(e.target.value)}>
+              <option value="">Todos los estados</option>
+              {ESTADOS.map((estado) => (
+                <option key={estado} value={estado}>
+                  {estadoLabel(estado)}
+                </option>
+              ))}
+            </select>
           </div>
         </div>
 
-        <div style={{ display: "flex", flexWrap: "wrap", gap: "10px" }}>
-          {[
-            "inventario",
-            "comprado",
-            "en_transito",
-            "en_aduana",
-            "en_reparacion",
-            "disponible",
-            "vendido"
-          ].map((estado) => {
-            const count = vehicles.filter((v) => v.estado === estado).length;
-
-            return (
-              <div
-                key={estado}
-                style={{
-                  background: "#f2f2f2",
-                  padding: "10px 15px",
-                  borderRadius: "20px"
-                }}
-              >
-                {estado}: {count}
-              </div>
-            );
-          })}
+        <div className="table-wrapper">
+          <table className="data-table vehicles-table">
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>Marca</th>
+                <th>Modelo</th>
+                <th>Año</th>
+                <th className="numeric">Precio</th>
+                <th>Estado</th>
+                <th>Acciones</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredVehicles.map((v) => (
+                <tr key={v.id}>
+                  <td>{v.id}</td>
+                  <td>{v.marca}</td>
+                  <td>{v.modelo}</td>
+                  <td>{v.anio}</td>
+                  <td className="numeric">{formatMoney(v.precio_estimado)}</td>
+                  <td>
+                    <span className="status-pill">{estadoLabel(v.estado)}</span>
+                  </td>
+                  <td>
+                    <div className="table-actions">
+                      <button className="btn btn-danger" onClick={() => deleteVehicle(v.id)}>
+                        Eliminar
+                      </button>
+                      <button className="btn btn-secondary" onClick={() => handleEdit(v)}>
+                        Editar
+                      </button>
+                      <button
+                        className="btn btn-primary"
+                        onClick={() => {
+                          setSelectedVehicle(v);
+                          loadCosts(v.id);
+                        }}
+                      >
+                        Costos
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
-      </div>
-      <div style={{ display: "flex", gap: "20px", marginBottom: "20px" }}>
-      </div>
+      </section>
 
-      {/* 🔥 FORMULARIO */}
-      <form onSubmit={handleSubmit} style={{ marginBottom: "20px" }}>
-        <input name="vin" placeholder="VIN" value={form.vin} onChange={handleChange} required />
-        <input name="marca" placeholder="Marca" value={form.marca} onChange={handleChange} required />
-        <input name="modelo" placeholder="Modelo" value={form.modelo} onChange={handleChange} required />
-        <input name="anio" placeholder="Año" value={form.anio} onChange={handleChange} required />
-        <input type="number" name="precio_estimado" placeholder="Precio" value={form.precio_estimado} onChange={handleChange}
-        />
-
-        <select name="estado" value={form.estado} onChange={handleChange}>
-          <option value="inventario">inventario</option>
-          <option value="comprado">comprado</option>
-          <option value="en_transito">en_transito</option>
-          <option value="en_aduana">en_aduana</option>
-          <option value="en_reparacion">en_reparacion</option>
-          <option value="disponible">disponible</option>
-          <option value="vendido">vendido</option>
-        </select>
-
-        <button type="submit">
-          {editingId ? "Actualizar" : "Crear"}
-        </button>
-      </form>
-      <div style={{ marginBottom: "15px" }}>
-        <input
-          placeholder="Buscar por marca o modelo..."
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          style={{ marginRight: "10px", padding: "5px" }}
-        />
-
-        <select
-          value={estadoFilter}
-          onChange={(e) => setEstadoFilter(e.target.value)}
-          style={{ padding: "5px" }}
-        >
-          <option value="">Todos los estados</option>
-          <option value="inventario">inventario</option>
-          <option value="comprado">comprado</option>
-          <option value="en_transito">en_transito</option>
-          <option value="en_aduana">en_aduana</option>
-          <option value="en_reparacion">en_reparacion</option>
-          <option value="disponible">disponible</option>
-          <option value="vendido">vendido</option>
-        </select>
-      </div>
-      {/* 🔥 TABLA */}
-      <table
-        style={{
-          width: "100%",
-          borderCollapse: "collapse",
-          tableLayout: "fixed"
-        }}
-      >
-        {/* 🔥 CONTROL REAL DE COLUMNAS */}
-        <colgroup>
-          <col style={{ width: "60px" }} />   {/* ID */}
-          <col style={{ width: "18%" }} />   {/* Marca */}
-          <col style={{ width: "22%" }} />   {/* Modelo */}
-          <col style={{ width: "8%" }} />    {/* Año */}
-          <col style={{ width: "12%" }} />   {/* Precio */}
-          <col style={{ width: "15%" }} />   {/* Estado */}
-          <col style={{ width: "120px" }} /> {/* Acciones */}
-        </colgroup>
-
-        {/* 🔥 HEADER */}
-        <thead style={{ backgroundColor: "#f2f2f2" }}>
-          <tr>
-            <th>ID</th>
-            <th>Marca</th>
-            <th>Modelo</th>
-            <th>Año</th>
-            <th>Precio</th>
-            <th>Estado</th>
-            <th>Acciones</th>
-          </tr>
-        </thead>
-
-        {/* 🔥 BODY */}
-        <tbody>
-          {filteredVehicles.map((v) => (
-            <tr key={v.id}>
-              <td style={{ padding: "8px", textAlign: "center" }}>
-                {v.id}
-              </td>
-
-              <td
-                style={{
-                  padding: "8px",
-                  overflow: "hidden",
-                  textOverflow: "ellipsis",
-                  whiteSpace: "nowrap", textAlign: "center"
-                }}
-              >
-                {v.marca}
-              </td>
-
-              <td
-                style={{
-                  padding: "8px",
-                  overflow: "hidden",
-                  textOverflow: "ellipsis",
-                  whiteSpace: "nowrap", textAlign: "center"
-                }}
-              >
-                {v.modelo}
-              </td>
-
-              <td style={{ padding: "8px", textAlign: "center" }}>
-                {v.anio}
-              </td>
-              <td style={{ padding: "8px", textAlign: "right" }}>
-                {v.precio_estimado}</td>
-
-              <td style={{ padding: "8px", textAlign: "center" }}>
-                {v.estado}
-              </td>
-
-              <td style={{ padding: "8px", textAlign: "center" }}>
-                <button onClick={() => deleteVehicle(v.id)}>
-                  Eliminar
-                </button>
-                <button onClick={() => handleEdit(v)}>
-                  Editar
-                </button>
-                <button
-                  onClick={() => {
-                    setSelectedVehicle(v);
-                    loadCosts(v.id);
-                  }}
-                >
-                  Costos
-                </button>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
       {selectedVehicle && (
-        <div style={{ marginTop: "30px" }}>
-          <h3>💸 Costos del vehículo: {selectedVehicle.marca} {selectedVehicle.modelo}</h3>
-          <form onSubmit={handleAddCost} style={{ marginBottom: "15px" }}>
-            <select
-              name="tipo"
-              value={costForm.tipo}
-              onChange={handleCostChange}
-              required
-            >
-              <option value="compra">Compra</option>
-              <option value="flete">flete</option>
-              <option value="aduana">aduana</option>
-              <option value="impuestos">impuestos</option>
-              <option value="reparacion">reparacion</option>
-              <option value="transporte_local">transporte_local</option>
-              <option value="comision">comision</option>
-              <option value="documentacion">documentacion</option>
-              <option value="otros">otros</option>
-            </select>
+        <section className="panel costs-panel">
+          <div className="panel-title-row">
+            <h2>
+              Costos de {selectedVehicle.marca} {selectedVehicle.modelo}
+            </h2>
+            <p className="cost-total">
+              Total costos: <strong>{formatMoney(totalCost)}</strong>
+            </p>
+          </div>
 
+          <form onSubmit={handleAddCost} className="form-grid cost-form-grid">
+            <select name="tipo" value={costForm.tipo} onChange={handleCostChange} required className="input-control">
+              <option value="">Tipo de costo</option>
+              {TIPOS_COSTO.map((tipo) => (
+                <option key={tipo} value={tipo}>
+                  {estadoLabel(tipo)}
+                </option>
+              ))}
+            </select>
             <input
+              className="input-control"
               name="monto"
               type="number"
               placeholder="Monto"
@@ -600,78 +496,76 @@ function App() {
               required
             />
             <input
+              className="input-control"
               name="moneda"
               placeholder="Moneda (DOP, USD)"
               value={costForm.moneda}
               onChange={handleCostChange}
             />
-
             <input
+              className="input-control"
               name="tasa_cambio"
               type="number"
-              placeholder="Tasa cambio"
+              placeholder="Tasa de cambio"
               value={costForm.tasa_cambio}
               onChange={handleCostChange}
             />
-
+            <input className="input-control" name="fecha" type="date" value={costForm.fecha} onChange={handleCostChange} />
             <input
-              name="fecha"
-              type="date"
-              value={costForm.fecha}
-              onChange={handleCostChange}
-            />
-
-            <input
+              className="input-control"
               name="descripcion"
               placeholder="Descripción"
               value={costForm.descripcion}
               onChange={handleCostChange}
             />
-
-            <button type="submit">
-              {editingCostId ? "Actualizar Costo" : "Agregar Costo"}
-            </button>
-            {editingCostId && (
-              <button type="button" onClick={resetCostForm}>
-                Cancelar edición
+            <div className="cost-form-actions">
+              <button className="btn btn-primary" type="submit">
+                {editingCostId ? "Actualizar costo" : "Agregar costo"}
               </button>
-            )}
+              {editingCostId && (
+                <button className="btn btn-secondary" type="button" onClick={resetCostForm}>
+                  Cancelar edición
+                </button>
+              )}
+            </div>
           </form>
 
-          <p><strong>Total costos:</strong> {formatMoney(totalCost)}</p>
-
-          <table border="1" cellPadding="5">
-            <thead>
-              <tr>
-                <th>Tipo</th>
-                <th>Monto</th>
-                <th>Moneda</th>
-                <th>Fecha</th>
-                <th>Descripción</th>
-                <th>Acciones</th>
-              </tr>
-            </thead>
-            <tbody>
-              {costs.map((c) => (
-                <tr key={c.id}>
-                  <td>{c.tipo}</td>
-                  <td>{formatMoney(c.monto)}</td>
-                  <td>{c.moneda}</td>
-                  <td>{c.fecha}</td>
-                  <td>{c.descripcion}</td>
-                  <td>
-                    <button onClick={() => handleEditCost(c)}>
-                      Editar
-                    </button>
-                    <button onClick={() => handleDeleteCost(c.id)}>
-                      Eliminar
-                    </button>
-                  </td>
+          <div className="table-wrapper">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>Tipo</th>
+                  <th className="numeric">Monto</th>
+                  <th>Moneda</th>
+                  <th>Fecha</th>
+                  <th>Descripción</th>
+                  <th>Acciones</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody>
+                {costs.map((c) => (
+                  <tr key={c.id}>
+                    <td>{estadoLabel(c.tipo)}</td>
+                    <td className="numeric">{formatMoney(c.monto)}</td>
+                    <td>{c.moneda}</td>
+                    <td>{c.fecha}</td>
+                    <td>{c.descripcion}</td>
+                    <td>
+                      <div className="table-actions">
+                        <button className="btn btn-secondary" onClick={() => handleEditCost(c)}>
+                          Editar
+                        </button>
+                        <button className="btn btn-danger" onClick={() => handleDeleteCost(c.id)}>
+                          Eliminar
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
       )}
     </div>
   );
