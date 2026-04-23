@@ -254,6 +254,50 @@ h1 {
   align-items: center;
 }
 
+.report-panel {
+  border: 1px solid #c7d2fe;
+}
+
+.vehicle-report-card {
+  margin-top: 14px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 14px;
+  background: #f8fafc;
+}
+
+.vehicle-report-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+
+.vehicle-report-main p {
+  margin-top: 4px;
+  color: var(--muted);
+}
+
+.vehicle-report-meta {
+  text-align: right;
+}
+
+.vehicle-report-meta p {
+  margin-top: 6px;
+  color: var(--muted);
+}
+
+.report-empty,
+.report-empty-cell {
+  color: var(--muted);
+}
+
+.report-empty-cell {
+  text-align: center;
+  padding: 20px !important;
+}
+
 @media (max-width: 1024px) {
   .card-section {
     grid-template-columns: 1fr;

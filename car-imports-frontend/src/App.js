@@ -82,6 +82,9 @@ function App() {
   const [selectedVehicle, setSelectedVehicle] = useState(null);
   const [totalCost, setTotalCost] = useState(0);
   const [editingCostId, setEditingCostId] = useState(null);
+  const [reportRows, setReportRows] = useState([]);
+  const [loadingReport, setLoadingReport] = useState(false);
+  const [reportVisible, setReportVisible] = useState(false);
   const [costForm, setCostForm] = useState({
     tipo: "",
     monto: "",
@@ -307,6 +310,51 @@ function App() {
     }).format(value || 0);
   };
 
+  const formatDate = (value) => {
+    if (!value) return "—";
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return value;
+    return date.toLocaleDateString("es-DO");
+  };
+
+  const loadReport = async () => {
+    if (!vehicles.length) {
+      setReportRows([]);
+      setReportVisible(true);
+      return;
+    }
+
+    setLoadingReport(true);
+    setReportVisible(true);
+
+    try {
+      const rows = await Promise.all(
+        vehicles.map(async (vehicle) => {
+          const [costsResponse, totalResponse] = await Promise.all([
+            fetch(`http://127.0.0.1:5000/vehicles/${vehicle.id}/costs`),
+            fetch(`http://127.0.0.1:5000/vehicles/${vehicle.id}/costs/total`)
+          ]);
+
+          const costsPayload = await costsResponse.json();
+          const totalPayload = await totalResponse.json();
+
+          return {
+            vehicle,
+            costs: costsPayload.data || [],
+            totalCost: totalPayload.total_cost || 0
+          };
+        })
+      );
+
+      setReportRows(rows);
+    } catch (error) {
+      console.error("Error cargando reporte de costos:", error);
+      alert("No se pudo cargar el reporte de costos. Intenta nuevamente.");
+    } finally {
+      setLoadingReport(false);
+    }
+  };
+
   const metricCards = [
     { title: "Total vehículos", value: vehicles.length, icon: "🚗", variant: "neutral" },
     { title: "Valor inventario", value: formatMoney(totalInventario), icon: "💰", variant: "success" },
@@ -413,6 +461,9 @@ function App() {
                 </option>
               ))}
             </select>
+            <button className="btn btn-secondary" type="button" onClick={loadReport}>
+              Ver reporte de costos
+            </button>
           </div>
         </div>
 
@@ -465,6 +516,72 @@ function App() {
           </table>
         </div>
       </section>
+
+      {reportVisible && (
+        <section className="panel report-panel">
+          <div className="panel-title-row">
+            <h2>Reporte de costos por vehículo</h2>
+            {loadingReport ? <p className="cost-total">Cargando reporte...</p> : null}
+          </div>
+
+          {!loadingReport && reportRows.length === 0 && <p className="report-empty">No hay vehículos para mostrar.</p>}
+
+          {!loadingReport &&
+            reportRows.map((row) => (
+              <article key={row.vehicle.id} className="vehicle-report-card">
+                <header className="vehicle-report-header">
+                  <div className="vehicle-report-main">
+                    <h3>
+                      {row.vehicle.marca} {row.vehicle.modelo} ({row.vehicle.anio})
+                    </h3>
+                    <p>VIN: {row.vehicle.vin}</p>
+                  </div>
+                  <div className="vehicle-report-meta">
+                    <span className="status-pill">{estadoLabel(row.vehicle.estado)}</span>
+                    <p>
+                      Total costos: <strong>{formatMoney(row.totalCost)}</strong>
+                    </p>
+                  </div>
+                </header>
+
+                <div className="table-wrapper">
+                  <table className="data-table report-table">
+                    <thead>
+                      <tr>
+                        <th>Tipo</th>
+                        <th className="numeric">Monto</th>
+                        <th>Moneda</th>
+                        <th className="numeric">Tasa cambio</th>
+                        <th>Fecha</th>
+                        <th>Descripción</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {row.costs.length === 0 ? (
+                        <tr>
+                          <td colSpan={6} className="report-empty-cell">
+                            Este vehículo no tiene costos registrados.
+                          </td>
+                        </tr>
+                      ) : (
+                        row.costs.map((cost) => (
+                          <tr key={cost.id}>
+                            <td>{estadoLabel(cost.tipo)}</td>
+                            <td className="numeric">{formatMoney(cost.monto)}</td>
+                            <td>{cost.moneda || "—"}</td>
+                            <td className="numeric">{cost.tasa_cambio ?? "—"}</td>
+                            <td>{formatDate(cost.fecha)}</td>
+                            <td>{cost.descripcion || "—"}</td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </article>
+            ))}
+        </section>
+      )}
 
       {selectedVehicle && (
         <section className="panel costs-panel">
