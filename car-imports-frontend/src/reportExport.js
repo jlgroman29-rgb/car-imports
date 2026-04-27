@@ -448,38 +448,37 @@ const buildPdfHtml = ({ reportRows, estadoLabel }) => {
   <h1>Reporte de costos por vehículo</h1>
   <p class="subtitle">Generado: ${escapeXml(generatedAt)} | Vehículos incluidos: ${reportRows.length}</p>
   ${vehicleCards}
-  <script>
-    window.addEventListener("load", () => {
-      window.print();
-    });
-  </script>
 </body>
 </html>`;
 };
 
-const exportReportToPdf = ({ reportRows, estadoLabel }) => {
+const exportReportToPdf = ({ reportRows, estadoLabel, printWindow }) => {
   if (!reportRows.length) {
     throw new Error("No hay datos para exportar.");
   }
 
-  const printWindow = window.open("", "_blank", "noopener,noreferrer");
   if (!printWindow) {
     throw new Error("No se pudo abrir la ventana de impresión. Habilita los pop-ups e inténtalo de nuevo.");
   }
+
+  printWindow.onload = () => {
+    printWindow.focus();
+    printWindow.print();
+  };
 
   printWindow.document.open();
   printWindow.document.write(buildPdfHtml({ reportRows, estadoLabel }));
   printWindow.document.close();
 };
 
-export const exportCostReport = ({ format = EXPORT_FORMATS.XLSX, reportRows, estadoLabel }) => {
+export const exportCostReport = ({ format = EXPORT_FORMATS.XLSX, reportRows, estadoLabel, printWindow = null }) => {
   if (format === EXPORT_FORMATS.XLSX) {
     exportReportToXlsx({ reportRows, estadoLabel });
     return;
   }
 
   if (format === EXPORT_FORMATS.PDF) {
-    exportReportToPdf({ reportRows, estadoLabel });
+    exportReportToPdf({ reportRows, estadoLabel, printWindow });
     return;
   }
 
