@@ -357,7 +357,7 @@ function App() {
     }
   };
 
-  const handleExportReport = async (format) => {
+  const handleExportReport = (format) => {
     if (loadingReport) {
       return;
     }
@@ -367,14 +367,24 @@ function App() {
       return;
     }
 
+    const printWindow = format === EXPORT_FORMATS.PDF ? window.open("", "_blank") : null;
+    if (format === EXPORT_FORMATS.PDF && !printWindow) {
+      alert("No se pudo abrir la ventana de impresión. Habilita los pop-ups e inténtalo de nuevo.");
+      return;
+    }
+
     setExportingReport(true);
     try {
       exportCostReport({
         format,
         reportRows,
-        estadoLabel
+        estadoLabel,
+        printWindow
       });
     } catch (error) {
+      if (printWindow && !printWindow.closed) {
+        printWindow.close();
+      }
       console.error("Error exportando reporte:", error);
       alert(error.message || "No se pudo exportar el reporte.");
     } finally {
