@@ -116,8 +116,8 @@ def normalize_sale(row, columns):
         "monto": float(amount) if amount is not None else 0,
         "moneda": row.get("moneda", "DOP"),
         "tasa_cambio": float(tasa) if tasa is not None else None,
-        "fecha": row.get("fecha"),
-        "fecha_venta": row.get("fecha_venta", row.get("fecha")),
+        #"fecha": row.get("fecha"),
+        "fecha_venta": row.get("fecha_venta", row.get("fecha_venta")),
         "nombre_cliente": row.get("nombre_cliente"),
         "telefono_cliente": row.get("telefono_cliente"),
         "metodo_pago": row.get("metodo_pago"),
@@ -464,7 +464,7 @@ def create_sale():
         amount = data.get("monto", data.get("precio_venta"))
         moneda = data.get("moneda", "DOP")
         tasa_cambio = data.get("tasa_cambio")
-        fecha = data.get("fecha", data.get("fecha_venta"))
+        fecha_venta = data.get("fecha_venta", data.get("fecha_venta"))
         descripcion = data.get("descripcion")
         nombre_cliente = data.get("nombre_cliente")
         telefono_cliente = data.get("telefono_cliente")
@@ -486,8 +486,8 @@ def create_sale():
         optional_fields = {
             "moneda": moneda,
             "tasa_cambio": tasa_cambio,
-            "fecha": fecha,
-            "fecha_venta": fecha,
+            #"fecha": fecha,
+            "fecha_venta": fecha_venta,
             "descripcion": descripcion,
             "nombre_cliente": nombre_cliente,
             "telefono_cliente": telefono_cliente,
@@ -533,7 +533,7 @@ def get_sales():
 
         import psycopg2.extras
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-        cur.execute("SELECT * FROM sales ORDER BY COALESCE(fecha, NOW()) DESC, id DESC;")
+        cur.execute("SELECT * FROM sales ORDER BY COALESCE(fecha_venta, NOW()) DESC, id DESC;")
         rows = cur.fetchall()
 
         cur.close()
@@ -558,7 +558,7 @@ def get_sales_by_vehicle(vehicle_id):
             SELECT *
             FROM sales
             WHERE vehicle_id = %s
-            ORDER BY COALESCE(fecha, NOW()) DESC, id DESC;
+            ORDER BY COALESCE(fecha_venta, NOW()) DESC, id DESC;
         """, (vehicle_id,))
         rows = cur.fetchall()
 
