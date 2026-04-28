@@ -106,18 +106,32 @@ def get_sales_price_column(columns):
     return None
 
 
+def get_sales_date_column(columns):
+    if "fecha_venta" in columns:
+        return "fecha_venta"
+    if "fecha" in columns:
+        return "fecha"
+    return None
+
+
 def normalize_sale(row, columns):
     price_column = get_sales_price_column(columns)
+    date_column = get_sales_date_column(columns)
     amount = row.get(price_column) if price_column else None
     tasa = row.get("tasa_cambio")
     return {
         "id": row.get("id"),
         "vehicle_id": row.get("vehicle_id"),
+        "precio_venta": float(amount) if amount is not None else 0,
         "monto": float(amount) if amount is not None else 0,
         "moneda": row.get("moneda", "DOP"),
         "tasa_cambio": float(tasa) if tasa is not None else None,
-        "fecha": row.get("fecha"),
-        "descripcion": row.get("descripcion"),
+        "fecha_venta": row.get(date_column) if date_column else None,
+        "nombre_cliente": row.get("nombre_cliente"),
+        "telefono_cliente": row.get("telefono_cliente"),
+        "metodo_pago": row.get("metodo_pago"),
+        "notas": row.get("notas"),
+        "fecha": row.get(date_column) if date_column else None,
         "created_at": row.get("created_at"),
     }
 
@@ -450,39 +464,61 @@ def create_sale():
         conn = get_connection()
         sales_columns = get_table_columns(conn, "sales")
         price_column = get_sales_price_column(sales_columns)
+        date_column = get_sales_date_column(sales_columns)
 
         if not price_column:
             conn.close()
-            return {"error": "La tabla sales no tiene una columna de monto válida"}, 500
+            return {"status": "error", "message": "La tabla sales no tiene una columna de monto válida"}, 500
 
         vehicle_id = data.get("vehicle_id")
-        amount = data.get("monto", data.get("precio_venta"))
+        amount = data.get("precio_venta", data.get("monto"))
         moneda = data.get("moneda", "DOP")
         tasa_cambio = data.get("tasa_cambio")
-        fecha = data.get("fecha")
-        descripcion = data.get("descripcion")
+        fecha_venta = data.get("fecha_venta", data.get("fecha"))
+        nombre_cliente = data.get("nombre_cliente")
+        telefono_cliente = data.get("telefono_cliente")
+        metodo_pago = data.get("metodo_pago")
+        notas = data.get("notas")
 
         if not vehicle_id:
             conn.close()
-            return {"error": "vehicle_id es obligatorio"}, 400
+            return {"status": "error", "message": "vehicle_id es obligatorio"}, 400
 
         if amount is None:
             conn.close()
-            return {"error": "monto (o precio_venta) es obligatorio"}, 400
+            return {"status": "error", "message": "precio_venta es obligatorio"}, 400
 
         cur = conn.cursor()
+
+        cur.execute("SELECT id FROM vehicles WHERE id = %s;", (vehicle_id,))
+        vehicle = cur.fetchone()
+        if not vehicle:
+            conn.close()
+            return {"status": "error", "message": f"Vehículo {vehicle_id} no existe"}, 404
+
+        cur.execute("SELECT id FROM sales WHERE vehicle_id = %s LIMIT 1;", (vehicle_id,))
+        existing_sale = cur.fetchone()
+        if existing_sale:
+            conn.close()
+            return {
+                "status": "error",
+                "message": f"El vehículo {vehicle_id} ya tiene una venta registrada"
+            }, 409
 
         insert_columns = ["vehicle_id", price_column]
         values = [vehicle_id, amount]
         optional_fields = {
             "moneda": moneda,
             "tasa_cambio": tasa_cambio,
-            "fecha": fecha,
-            "descripcion": descripcion,
+            date_column: fecha_venta,
+            "nombre_cliente": nombre_cliente,
+            "telefono_cliente": telefono_cliente,
+            "metodo_pago": metodo_pago,
+            "notas": notas,
         }
 
         for col, val in optional_fields.items():
-            if col in sales_columns:
+            if col and col in sales_columns and val is not None:
                 insert_columns.append(col)
                 values.append(val)
 
@@ -505,10 +541,10 @@ def create_sale():
         cur.close()
         conn.close()
 
-        return {"status": "OK", "id": new_id}, 201
+        return {"status": "success", "message": "Venta creada correctamente", "id": new_id}, 201
 
     except Exception as e:
-        return {"error": str(e)}, 500
+        return {"status": "error", "message": str(e)}, 500
 
 
 @app.route("/sales", methods=["GET"])
@@ -516,20 +552,24 @@ def get_sales():
     try:
         conn = get_connection()
         sales_columns = get_table_columns(conn, "sales")
+        date_column = get_sales_date_column(sales_columns)
 
         import psycopg2.extras
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-        cur.execute("SELECT * FROM sales ORDER BY COALESCE(fecha, NOW()) DESC, id DESC;")
+        if date_column:
+            cur.execute(f"SELECT * FROM sales ORDER BY COALESCE({date_column}, NOW()) DESC, id DESC;")
+        else:
+            cur.execute("SELECT * FROM sales ORDER BY id DESC;")
         rows = cur.fetchall()
 
         cur.close()
         conn.close()
 
         data = [normalize_sale(row, sales_columns) for row in rows]
-        return {"status": "OK", "data": data}
+        return {"status": "success", "data": data}
 
     except Exception as e:
-        return {"error": str(e)}, 500
+        return {"status": "error", "message": str(e)}, 500
 
 
 @app.route("/vehicles/<int:vehicle_id>/sales", methods=["GET"])
@@ -537,25 +577,40 @@ def get_sales_by_vehicle(vehicle_id):
     try:
         conn = get_connection()
         sales_columns = get_table_columns(conn, "sales")
+        date_column = get_sales_date_column(sales_columns)
 
         import psycopg2.extras
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-        cur.execute("""
-            SELECT *
-            FROM sales
-            WHERE vehicle_id = %s
-            ORDER BY COALESCE(fecha, NOW()) DESC, id DESC;
-        """, (vehicle_id,))
+        cur.execute("SELECT id FROM vehicles WHERE id = %s;", (vehicle_id,))
+        vehicle = cur.fetchone()
+        if not vehicle:
+            conn.close()
+            return {"status": "error", "message": f"Vehículo {vehicle_id} no existe"}, 404
+
+        if date_column:
+            cur.execute(f"""
+                SELECT *
+                FROM sales
+                WHERE vehicle_id = %s
+                ORDER BY COALESCE({date_column}, NOW()) DESC, id DESC;
+            """, (vehicle_id,))
+        else:
+            cur.execute("""
+                SELECT *
+                FROM sales
+                WHERE vehicle_id = %s
+                ORDER BY id DESC;
+            """, (vehicle_id,))
         rows = cur.fetchall()
 
         cur.close()
         conn.close()
 
         data = [normalize_sale(row, sales_columns) for row in rows]
-        return {"status": "OK", "data": data}
+        return {"status": "success", "data": data}
 
     except Exception as e:
-        return {"error": str(e)}, 500
+        return {"status": "error", "message": str(e)}, 500
 
 
 @app.route("/sales/<int:id>", methods=["PATCH"])
@@ -566,29 +621,58 @@ def patch_sale(id):
         conn = get_connection()
         sales_columns = get_table_columns(conn, "sales")
         price_column = get_sales_price_column(sales_columns)
+        date_column = get_sales_date_column(sales_columns)
 
         fields = []
         values = []
 
-        allowed = ["vehicle_id", "moneda", "tasa_cambio", "fecha", "descripcion"]
+        allowed = ["vehicle_id", "moneda", "tasa_cambio", "nombre_cliente", "telefono_cliente", "metodo_pago", "notas"]
         for f in allowed:
             if f in data and f in sales_columns:
                 fields.append(f"{f} = %s")
                 values.append(data[f])
 
-        if "monto" in data and price_column:
+        if "precio_venta" in data and price_column:
+            fields.append(f"{price_column} = %s")
+            values.append(data["precio_venta"])
+        elif "monto" in data and price_column:
             fields.append(f"{price_column} = %s")
             values.append(data["monto"])
-        elif "precio_venta" in data and "precio_venta" in sales_columns:
+
+        if "fecha_venta" in data and date_column:
+            fields.append(f"{date_column} = %s")
+            values.append(data["fecha_venta"])
+        elif "fecha" in data and date_column:
+            fields.append(f"{date_column} = %s")
+            values.append(data["fecha"])
+
+        if "precio_venta" in data and "precio_venta" in sales_columns and not price_column:
             fields.append("precio_venta = %s")
             values.append(data["precio_venta"])
 
         if not fields:
             conn.close()
-            return {"error": "No hay datos para actualizar"}, 400
+            return {"status": "error", "message": "No hay datos para actualizar"}, 400
+
+        cur = conn.cursor()
+
+        if "vehicle_id" in data:
+            cur.execute("SELECT id FROM vehicles WHERE id = %s;", (data["vehicle_id"],))
+            vehicle = cur.fetchone()
+            if not vehicle:
+                conn.close()
+                return {"status": "error", "message": f"Vehículo {data['vehicle_id']} no existe"}, 404
+
+            cur.execute("SELECT id FROM sales WHERE vehicle_id = %s AND id <> %s LIMIT 1;", (data["vehicle_id"], id))
+            duplicate = cur.fetchone()
+            if duplicate:
+                conn.close()
+                return {
+                    "status": "error",
+                    "message": f"El vehículo {data['vehicle_id']} ya tiene una venta registrada"
+                }, 409
 
         values.append(id)
-        cur = conn.cursor()
         query = f"""
             UPDATE sales
             SET {", ".join(fields)}
@@ -603,12 +687,12 @@ def patch_sale(id):
         conn.close()
 
         if updated is None:
-            return {"error": "Venta no encontrada"}, 404
+            return {"status": "error", "message": "Venta no encontrada"}, 404
 
-        return {"status": "OK"}
+        return {"status": "success", "message": "Venta actualizada correctamente", "id": id}
 
     except Exception as e:
-        return {"error": str(e)}, 500
+        return {"status": "error", "message": str(e)}, 500
 
 
 @app.route("/sales/<int:id>", methods=["DELETE"])
@@ -625,12 +709,12 @@ def delete_sale(id):
         conn.close()
 
         if deleted is None:
-            return {"error": "Venta no encontrada"}, 404
+            return {"status": "error", "message": "Venta no encontrada"}, 404
 
-        return {"status": "OK", "message": f"Venta {id} eliminada"}
+        return {"status": "success", "message": f"Venta {id} eliminada"}
 
     except Exception as e:
-        return {"error": str(e)}, 500
+        return {"status": "error", "message": str(e)}, 500
 
 @app.route("/costs", methods=["POST"])
 def create_cost():
