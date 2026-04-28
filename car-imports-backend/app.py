@@ -458,6 +458,36 @@ def get_cost_types():
 
 @app.route("/sales", methods=["POST"])
 def create_sale():
+    """
+    Crea una venta para un vehículo específico.
+
+    Body esperado (JSON):
+        - vehicle_id (int, requerido): ID del vehículo a vender.
+        - precio_venta (number, requerido si no se envía monto): monto de venta.
+        - monto (number, requerido si no se envía precio_venta): alias de precio_venta.
+        - moneda (str, opcional): por defecto "DOP".
+        - tasa_cambio (number, opcional): tasa aplicada al momento de la venta.
+        - fecha_venta (date/datetime string, opcional): fecha de la venta.
+        - fecha (date/datetime string, opcional): alias de fecha_venta.
+        - nombre_cliente (str, opcional): nombre del cliente.
+        - telefono_cliente (str, opcional): teléfono del cliente.
+        - metodo_pago (str, opcional): método de pago registrado.
+        - notas (str, opcional): observaciones adicionales.
+
+    Validaciones:
+        - La tabla `sales` debe contener una columna de monto válida (`monto` o `precio_venta`).
+        - `vehicle_id` es obligatorio.
+        - Debe enviarse `precio_venta` o `monto`.
+        - El vehículo debe existir en `vehicles`.
+        - Regla de negocio: un vehículo solo puede tener una venta registrada.
+
+    Respuestas HTTP:
+        - 201: venta creada correctamente.
+        - 400: faltan campos obligatorios.
+        - 404: el vehículo no existe.
+        - 409: ya existe una venta para ese vehículo.
+        - 500: error interno o inconsistencia de esquema.
+    """
     try:
         data = request.get_json(silent=True) or {}
 
@@ -490,12 +520,14 @@ def create_sale():
 
         cur = conn.cursor()
 
+        # Validación referencial: la venta solo puede asociarse a un vehículo existente.
         cur.execute("SELECT id FROM vehicles WHERE id = %s;", (vehicle_id,))
         vehicle = cur.fetchone()
         if not vehicle:
             conn.close()
             return {"status": "error", "message": f"Vehículo {vehicle_id} no existe"}, 404
 
+        # Regla de negocio: cada vehículo puede tener una única venta.
         cur.execute("SELECT id FROM sales WHERE vehicle_id = %s LIMIT 1;", (vehicle_id,))
         existing_sale = cur.fetchone()
         if existing_sale:
@@ -528,6 +560,7 @@ def create_sale():
         else:
             placeholders = ["%s"] * len(values)
 
+        # Query dinámica para soportar variaciones de columnas históricas en la tabla `sales`.
         query = f"""
             INSERT INTO sales ({", ".join(insert_columns)})
             VALUES ({", ".join(placeholders)})
@@ -549,6 +582,22 @@ def create_sale():
 
 @app.route("/sales", methods=["GET"])
 def get_sales():
+    """
+    Lista todas las ventas registradas.
+
+    Parámetros:
+        - No recibe parámetros de ruta ni query params.
+
+    Comportamiento:
+        - Obtiene todas las filas de `sales`.
+        - Ordena por fecha de venta descendente cuando la columna de fecha existe.
+        - Si no existe columna de fecha, ordena por `id` descendente.
+        - Normaliza la salida para exponer un contrato consistente (`precio_venta`, `fecha_venta`, etc.).
+
+    Respuestas HTTP:
+        - 200: listado de ventas.
+        - 500: error interno.
+    """
     try:
         conn = get_connection()
         sales_columns = get_table_columns(conn, "sales")
@@ -557,8 +606,10 @@ def get_sales():
         import psycopg2.extras
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         if date_column:
+            # Prioriza ventas más recientes usando la fecha disponible en el esquema actual.
             cur.execute(f"SELECT * FROM sales ORDER BY COALESCE({date_column}, NOW()) DESC, id DESC;")
         else:
+            # Fallback cuando no hay columna de fecha en la tabla.
             cur.execute("SELECT * FROM sales ORDER BY id DESC;")
         rows = cur.fetchall()
 
@@ -574,6 +625,26 @@ def get_sales():
 
 @app.route("/vehicles/<int:vehicle_id>/sales", methods=["GET"])
 def get_sales_by_vehicle(vehicle_id):
+    """
+    Lista ventas asociadas a un vehículo específico.
+
+    Parámetros de ruta:
+        - vehicle_id (int, requerido): ID del vehículo.
+
+    Validaciones:
+        - El vehículo debe existir antes de consultar sus ventas.
+
+    Comportamiento:
+        - Consulta ventas filtradas por `vehicle_id`.
+        - Aplica orden descendente por fecha cuando la columna de fecha existe.
+        - Si no existe columna de fecha, ordena por `id` descendente.
+        - Retorna datos normalizados para mantener consistencia del contrato.
+
+    Respuestas HTTP:
+        - 200: ventas del vehículo (lista, puede estar vacía).
+        - 404: vehículo no existe.
+        - 500: error interno.
+    """
     try:
         conn = get_connection()
         sales_columns = get_table_columns(conn, "sales")
@@ -581,6 +652,7 @@ def get_sales_by_vehicle(vehicle_id):
 
         import psycopg2.extras
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        # Validación explícita de existencia del recurso padre (vehículo).
         cur.execute("SELECT id FROM vehicles WHERE id = %s;", (vehicle_id,))
         vehicle = cur.fetchone()
         if not vehicle:
@@ -615,6 +687,37 @@ def get_sales_by_vehicle(vehicle_id):
 
 @app.route("/sales/<int:id>", methods=["PATCH"])
 def patch_sale(id):
+    """
+    Actualiza parcialmente una venta existente.
+
+    Parámetros de ruta:
+        - id (int, requerido): ID de la venta a actualizar.
+
+    Body esperado (JSON, parcial):
+        - vehicle_id (int, opcional)
+        - precio_venta (number, opcional)
+        - monto (number, opcional; alias de precio_venta)
+        - moneda (str, opcional)
+        - tasa_cambio (number, opcional)
+        - fecha_venta (date/datetime string, opcional)
+        - fecha (date/datetime string, opcional; alias de fecha_venta)
+        - nombre_cliente (str, opcional)
+        - telefono_cliente (str, opcional)
+        - metodo_pago (str, opcional)
+        - notas (str, opcional)
+
+    Validaciones:
+        - Debe enviarse al menos un campo actualizable.
+        - Si se cambia `vehicle_id`, el vehículo destino debe existir.
+        - Regla de negocio: un vehículo solo puede tener una venta; evita duplicados al reasignar.
+
+    Respuestas HTTP:
+        - 200: venta actualizada correctamente.
+        - 400: no se enviaron campos válidos para actualizar.
+        - 404: venta no encontrada o vehículo destino inexistente.
+        - 409: conflicto por duplicidad de venta para el vehículo.
+        - 500: error interno.
+    """
     try:
         data = request.get_json(silent=True) or {}
 
@@ -650,6 +753,7 @@ def patch_sale(id):
             fields.append("precio_venta = %s")
             values.append(data["precio_venta"])
 
+        # Se requiere al menos un campo válido para construir un UPDATE parcial.
         if not fields:
             conn.close()
             return {"status": "error", "message": "No hay datos para actualizar"}, 400
@@ -657,12 +761,14 @@ def patch_sale(id):
         cur = conn.cursor()
 
         if "vehicle_id" in data:
+            # Validación referencial al cambiar el vehículo asociado a la venta.
             cur.execute("SELECT id FROM vehicles WHERE id = %s;", (data["vehicle_id"],))
             vehicle = cur.fetchone()
             if not vehicle:
                 conn.close()
                 return {"status": "error", "message": f"Vehículo {data['vehicle_id']} no existe"}, 404
 
+            # Regla de negocio: no permitir dos ventas para un mismo vehículo.
             cur.execute("SELECT id FROM sales WHERE vehicle_id = %s AND id <> %s LIMIT 1;", (data["vehicle_id"], id))
             duplicate = cur.fetchone()
             if duplicate:
@@ -673,6 +779,7 @@ def patch_sale(id):
                 }, 409
 
         values.append(id)
+        # Query dinámica basada en los campos provistos por el cliente.
         query = f"""
             UPDATE sales
             SET {", ".join(fields)}
@@ -697,10 +804,25 @@ def patch_sale(id):
 
 @app.route("/sales/<int:id>", methods=["DELETE"])
 def delete_sale(id):
+    """
+    Elimina una venta por su identificador.
+
+    Parámetros de ruta:
+        - id (int, requerido): ID de la venta.
+
+    Comportamiento:
+        - Ejecuta un DELETE con `RETURNING id` para confirmar si existía el registro.
+
+    Respuestas HTTP:
+        - 200: venta eliminada.
+        - 404: venta no encontrada.
+        - 500: error interno.
+    """
     try:
         conn = get_connection()
         cur = conn.cursor()
 
+        # Uso de RETURNING para distinguir entre "no existe" y eliminación exitosa.
         cur.execute("DELETE FROM sales WHERE id = %s RETURNING id;", (id,))
         deleted = cur.fetchone()
 
