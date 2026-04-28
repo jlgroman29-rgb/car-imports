@@ -95,6 +95,22 @@ function App() {
     fecha: "",
     descripcion: ""
   });
+  const [selectedSaleVehicle, setSelectedSaleVehicle] = useState(null);
+  const [saleRecord, setSaleRecord] = useState(null);
+  const [loadingSale, setLoadingSale] = useState(false);
+  const [saleError, setSaleError] = useState("");
+  const [saleSuccess, setSaleSuccess] = useState("");
+  const [editingSaleId, setEditingSaleId] = useState(null);
+  const [saleForm, setSaleForm] = useState({
+    precio_venta: "",
+    moneda: "DOP",
+    tasa_cambio: "",
+    fecha_venta: "",
+    nombre_cliente: "",
+    telefono_cliente: "",
+    metodo_pago: "",
+    notas: ""
+  });
 
   const resetCostForm = () => {
     setCostForm({
@@ -106,6 +122,48 @@ function App() {
       descripcion: ""
     });
     setEditingCostId(null);
+  };
+
+  const resetSaleForm = () => {
+    setSaleForm({
+      precio_venta: "",
+      moneda: "DOP",
+      tasa_cambio: "",
+      fecha_venta: "",
+      nombre_cliente: "",
+      telefono_cliente: "",
+      metodo_pago: "",
+      notas: ""
+    });
+    setEditingSaleId(null);
+  };
+
+  const loadVehicleSale = async (vehicleId) => {
+    setLoadingSale(true);
+    setSaleError("");
+    setSaleSuccess("");
+
+    try {
+      const res = await fetch(`http://127.0.0.1:5000/vehicles/${vehicleId}/sales`);
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || data.message || "No se pudo cargar la venta.");
+      }
+
+      const firstSale = (data.data || [])[0] || null;
+      setSaleRecord(firstSale);
+
+      if (!firstSale) {
+        resetSaleForm();
+      } else {
+        setEditingSaleId(null);
+      }
+    } catch (err) {
+      setSaleRecord(null);
+      setSaleError(err.message || "Error cargando la venta del vehículo.");
+    } finally {
+      setLoadingSale(false);
+    }
   };
 
   const handleAddCost = (e) => {
@@ -243,6 +301,133 @@ function App() {
       ...costForm,
       [e.target.name]: e.target.value
     });
+  };
+
+  const handleSaleChange = (e) => {
+    setSaleForm({
+      ...saleForm,
+      [e.target.name]: e.target.value
+    });
+  };
+
+  const handleEditSale = () => {
+    if (!saleRecord) return;
+
+    setSaleForm({
+      precio_venta: saleRecord.monto !== null && saleRecord.monto !== undefined ? String(saleRecord.monto) : "",
+      moneda: saleRecord.moneda || "DOP",
+      tasa_cambio:
+        saleRecord.tasa_cambio !== null && saleRecord.tasa_cambio !== undefined
+          ? String(saleRecord.tasa_cambio)
+          : "",
+      fecha_venta: saleRecord.fecha ? new Date(saleRecord.fecha).toISOString().split("T")[0] : "",
+      nombre_cliente: saleRecord.nombre_cliente || "",
+      telefono_cliente: saleRecord.telefono_cliente || "",
+      metodo_pago: saleRecord.metodo_pago || "",
+      notas: saleRecord.notas || ""
+    });
+    setEditingSaleId(saleRecord.id);
+    setSaleError("");
+    setSaleSuccess("");
+  };
+
+  const handleCancelSaleEdit = () => {
+    setEditingSaleId(null);
+    setSaleError("");
+    setSaleSuccess("");
+    if (saleRecord) {
+      handleEditSale();
+      setEditingSaleId(null);
+    } else {
+      resetSaleForm();
+    }
+  };
+
+  const saveSale = async (e) => {
+    e.preventDefault();
+
+    if (!selectedSaleVehicle) {
+      setSaleError("Selecciona un vehículo para registrar la venta.");
+      return;
+    }
+
+    if (!saleForm.precio_venta) {
+      setSaleError("El campo precio_venta es obligatorio.");
+      return;
+    }
+
+    if (!editingSaleId && saleRecord) {
+      setSaleError("Este vehículo ya tiene una venta registrada.");
+      return;
+    }
+
+    setSaleError("");
+    setSaleSuccess("");
+
+    const payload = {
+      ...(editingSaleId ? {} : { vehicle_id: selectedSaleVehicle.id }),
+      monto: Number(saleForm.precio_venta),
+      moneda: saleForm.moneda || "DOP",
+      tasa_cambio: saleForm.tasa_cambio !== "" ? Number(saleForm.tasa_cambio) : null,
+      fecha: saleForm.fecha_venta || null,
+      nombre_cliente: saleForm.nombre_cliente || null,
+      telefono_cliente: saleForm.telefono_cliente || null,
+      metodo_pago: saleForm.metodo_pago || null,
+      notas: saleForm.notas || null,
+      descripcion: saleForm.notas || null
+    };
+
+    const endpoint = editingSaleId
+      ? `http://127.0.0.1:5000/sales/${editingSaleId}`
+      : "http://127.0.0.1:5000/sales";
+
+    const method = editingSaleId ? "PATCH" : "POST";
+
+    try {
+      const res = await fetch(endpoint, {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        const backendMessage = data.error || data.message || "Error registrando la venta.";
+        if (backendMessage.toLowerCase().includes("duplicate")) {
+          throw new Error("Este vehículo ya tiene una venta registrada.");
+        }
+        throw new Error(backendMessage);
+      }
+
+      setSaleSuccess(editingSaleId ? "Venta actualizada correctamente." : "Venta registrada correctamente.");
+      resetSaleForm();
+      await loadVehicleSale(selectedSaleVehicle.id);
+    } catch (err) {
+      setSaleError(err.message || "Error conectando con el backend.");
+    }
+  };
+
+  const handleDeleteSale = async () => {
+    if (!saleRecord) return;
+    if (!window.confirm("¿Seguro que deseas eliminar esta venta?")) return;
+
+    setSaleError("");
+    setSaleSuccess("");
+
+    try {
+      const res = await fetch(`http://127.0.0.1:5000/sales/${saleRecord.id}`, {
+        method: "DELETE"
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || data.message || "No se pudo eliminar la venta.");
+      }
+
+      setSaleSuccess("Venta eliminada correctamente.");
+      resetSaleForm();
+      await loadVehicleSale(selectedSaleVehicle.id);
+    } catch (err) {
+      setSaleError(err.message || "Error eliminando la venta.");
+    }
   };
 
   const handleSubmit = (e) => {
@@ -542,6 +727,17 @@ function App() {
                       >
                         Costos
                       </button>
+                      <button
+                        className="btn btn-sale"
+                        onClick={() => {
+                          setSelectedSaleVehicle(v);
+                          setEditingSaleId(null);
+                          resetSaleForm();
+                          loadVehicleSale(v.id);
+                        }}
+                      >
+                        Venta
+                      </button>
                     </div>
                   </td>
                 </tr>
@@ -657,6 +853,120 @@ function App() {
               Ver reporte de costos
             </button>
           </div>
+        </section>
+      )}
+
+      {selectedSaleVehicle && (
+        <section className="panel sales-panel">
+          <div className="panel-title-row">
+            <h2>
+              Venta de {selectedSaleVehicle.marca} {selectedSaleVehicle.modelo}
+            </h2>
+            {saleRecord && !editingSaleId ? <span className="status-pill sale-badge">Venta registrada</span> : null}
+          </div>
+
+          {saleError ? <p className="form-message error">{saleError}</p> : null}
+          {saleSuccess ? <p className="form-message success">{saleSuccess}</p> : null}
+          {loadingSale ? <p className="form-message info">Cargando venta...</p> : null}
+
+          {!loadingSale && saleRecord && !editingSaleId ? (
+            <div className="sale-summary-card">
+              <div className="sale-summary-grid">
+                <p>
+                  <strong>Precio venta:</strong> {formatMoney(saleRecord.monto)}
+                </p>
+                <p>
+                  <strong>Moneda:</strong> {saleRecord.moneda || "DOP"}
+                </p>
+                <p>
+                  <strong>Tasa cambio:</strong> {saleRecord.tasa_cambio ?? "—"}
+                </p>
+                <p>
+                  <strong>Fecha venta:</strong> {formatDate(saleRecord.fecha)}
+                </p>
+                <p>
+                  <strong>Cliente:</strong> {saleRecord.nombre_cliente || "—"}
+                </p>
+                <p>
+                  <strong>Teléfono:</strong> {saleRecord.telefono_cliente || "—"}
+                </p>
+                <p>
+                  <strong>Método pago:</strong> {saleRecord.metodo_pago || "—"}
+                </p>
+                <p className="sale-notes">
+                  <strong>Notas:</strong> {saleRecord.notas || saleRecord.descripcion || "—"}
+                </p>
+              </div>
+              <div className="table-actions">
+                <button className="btn btn-secondary" type="button" onClick={handleEditSale}>
+                  Editar venta
+                </button>
+                <button className="btn btn-danger" type="button" onClick={handleDeleteSale}>
+                  Eliminar venta
+                </button>
+              </div>
+            </div>
+          ) : (
+            <form onSubmit={saveSale} className="form-grid cost-form-grid">
+              <input
+                className="input-control"
+                type="number"
+                name="precio_venta"
+                placeholder="Precio de venta"
+                value={saleForm.precio_venta}
+                onChange={handleSaleChange}
+                required
+              />
+              <input className="input-control" name="moneda" placeholder="Moneda" value={saleForm.moneda} onChange={handleSaleChange} />
+              <input
+                className="input-control"
+                type="number"
+                name="tasa_cambio"
+                placeholder="Tasa de cambio"
+                value={saleForm.tasa_cambio}
+                onChange={handleSaleChange}
+              />
+              <input
+                className="input-control"
+                type="date"
+                name="fecha_venta"
+                value={saleForm.fecha_venta}
+                onChange={handleSaleChange}
+              />
+              <input
+                className="input-control"
+                name="nombre_cliente"
+                placeholder="Nombre cliente"
+                value={saleForm.nombre_cliente}
+                onChange={handleSaleChange}
+              />
+              <input
+                className="input-control"
+                name="telefono_cliente"
+                placeholder="Teléfono cliente"
+                value={saleForm.telefono_cliente}
+                onChange={handleSaleChange}
+              />
+              <input
+                className="input-control"
+                name="metodo_pago"
+                placeholder="Método de pago"
+                value={saleForm.metodo_pago}
+                onChange={handleSaleChange}
+              />
+              <input className="input-control" name="notas" placeholder="Notas" value={saleForm.notas} onChange={handleSaleChange} />
+              <div className="cost-form-actions">
+                <button className="btn btn-primary" type="submit">
+                  {editingSaleId ? "Actualizar venta" : "Registrar venta"}
+                </button>
+                {editingSaleId ? (
+                  <button className="btn btn-secondary" type="button" onClick={handleCancelSaleEdit}>
+                    Cancelar edición
+                  </button>
+                ) : null}
+              </div>
+            </form>
+          )}
         </section>
       )}
 

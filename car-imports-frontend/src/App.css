@@ -234,6 +234,7 @@ h1 {
 .btn-primary { background: var(--primary); }
 .btn-secondary { background: var(--secondary); }
 .btn-danger { background: var(--danger); }
+.btn-sale { background: #0f766e; }
 
 .btn:hover {
   filter: brightness(0.95);
@@ -310,6 +311,60 @@ h1 {
   flex-wrap: wrap;
   align-items: center;
   justify-content: flex-end;
+}
+
+.sales-panel {
+  border: 1px solid #99f6e4;
+}
+
+.sale-badge {
+  background: #ecfeff;
+  color: #0f766e;
+  border-color: #99f6e4;
+}
+
+.sale-summary-card {
+  margin-top: 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #f8fafc;
+  padding: 14px;
+}
+
+.sale-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 8px 12px;
+  margin-bottom: 12px;
+}
+
+.sale-notes {
+  grid-column: 1 / -1;
+}
+
+.form-message {
+  margin-top: 10px;
+  font-size: 14px;
+  padding: 10px 12px;
+  border-radius: 10px;
+}
+
+.form-message.error {
+  color: #991b1b;
+  background: #fee2e2;
+  border: 1px solid #fecaca;
+}
+
+.form-message.success {
+  color: #065f46;
+  background: #d1fae5;
+  border: 1px solid #a7f3d0;
+}
+
+.form-message.info {
+  color: #1e3a8a;
+  background: #dbeafe;
+  border: 1px solid #bfdbfe;
 }
 
 @media (max-width: 1024px) {

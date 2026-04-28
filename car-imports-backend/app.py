@@ -117,6 +117,11 @@ def normalize_sale(row, columns):
         "moneda": row.get("moneda", "DOP"),
         "tasa_cambio": float(tasa) if tasa is not None else None,
         "fecha": row.get("fecha"),
+        "fecha_venta": row.get("fecha_venta", row.get("fecha")),
+        "nombre_cliente": row.get("nombre_cliente"),
+        "telefono_cliente": row.get("telefono_cliente"),
+        "metodo_pago": row.get("metodo_pago"),
+        "notas": row.get("notas"),
         "descripcion": row.get("descripcion"),
         "created_at": row.get("created_at"),
     }
@@ -459,8 +464,12 @@ def create_sale():
         amount = data.get("monto", data.get("precio_venta"))
         moneda = data.get("moneda", "DOP")
         tasa_cambio = data.get("tasa_cambio")
-        fecha = data.get("fecha")
+        fecha = data.get("fecha", data.get("fecha_venta"))
         descripcion = data.get("descripcion")
+        nombre_cliente = data.get("nombre_cliente")
+        telefono_cliente = data.get("telefono_cliente")
+        metodo_pago = data.get("metodo_pago")
+        notas = data.get("notas")
 
         if not vehicle_id:
             conn.close()
@@ -478,7 +487,12 @@ def create_sale():
             "moneda": moneda,
             "tasa_cambio": tasa_cambio,
             "fecha": fecha,
+            "fecha_venta": fecha,
             "descripcion": descripcion,
+            "nombre_cliente": nombre_cliente,
+            "telefono_cliente": telefono_cliente,
+            "metodo_pago": metodo_pago,
+            "notas": notas,
         }
 
         for col, val in optional_fields.items():
@@ -570,7 +584,18 @@ def patch_sale(id):
         fields = []
         values = []
 
-        allowed = ["vehicle_id", "moneda", "tasa_cambio", "fecha", "descripcion"]
+        allowed = [
+            "vehicle_id",
+            "moneda",
+            "tasa_cambio",
+            "fecha",
+            "fecha_venta",
+            "descripcion",
+            "nombre_cliente",
+            "telefono_cliente",
+            "metodo_pago",
+            "notas",
+        ]
         for f in allowed:
             if f in data and f in sales_columns:
                 fields.append(f"{f} = %s")
