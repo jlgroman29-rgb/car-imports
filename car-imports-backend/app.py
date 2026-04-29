@@ -1,3 +1,18 @@
+"""
+Car Imports Backend API
+
+Descripción:
+API para la gestión de vehículos, costos y ventas.
+
+Módulos principales:
+- Vehicles: CRUD de vehículos
+- Costs: gastos asociados a cada vehículo
+- Sales: registro de ventas y cálculo de rentabilidad
+- Invoces: Registros de facturas y Historial de ventas
+
+Autor: Jose Gonzalez
+Fecha: 2026
+"""
 from flask import Flask, request
 import psycopg2
 from flasgger import Swagger
