@@ -104,6 +104,19 @@ function App() {
   const [reportVisible, setReportVisible] = useState(false);
   const [exportingReport, setExportingReport] = useState(false);
   const [salesByVehicleId, setSalesByVehicleId] = useState({});
+  const [selectedSalesVehicle, setSelectedSalesVehicle] = useState(null);
+  const [sales, setSales] = useState([]);
+  const [editingSaleId, setEditingSaleId] = useState(null);
+  const [saleForm, setSaleForm] = useState({
+    nombre_cliente: "",
+    telefono_cliente: "",
+    precio_venta: "",
+    moneda: "USD",
+    tasa_cambio: "",
+    fecha_venta: "",
+    metodo_pago: "",
+    notas: ""
+  });
   const [costForm, setCostForm] = useState({
     tipo: "",
     monto: "",
@@ -229,6 +242,93 @@ function App() {
     });
 
     setEditingId(vehicle.id);
+  };
+
+  const loadSales = (vehicleId) => {
+    setSales([]);
+    fetch(`http://127.0.0.1:5000/vehicles/${vehicleId}/sales`)
+      .then((res) => res.json())
+      .then((data) => setSales(data.data || []))
+      .catch((err) => console.error("Error cargando ventas:", err));
+  };
+
+  const resetSaleForm = () => {
+    setSaleForm({
+      nombre_cliente: "",
+      telefono_cliente: "",
+      precio_venta: "",
+      moneda: "USD",
+      tasa_cambio: "",
+      fecha_venta: "",
+      metodo_pago: "",
+      notas: ""
+    });
+    setEditingSaleId(null);
+  };
+
+  const handleSaleChange = (e) => {
+    const { name, value } = e.target;
+    setSaleForm((prev) => ({ ...prev, [name]: value }));
+  };
+
+  const handleAddSale = (e) => {
+    e.preventDefault();
+    if (!selectedSalesVehicle) return;
+    const url = editingSaleId ? `http://127.0.0.1:5000/sales/${editingSaleId}` : "http://127.0.0.1:5000/sales";
+    const method = editingSaleId ? "PATCH" : "POST";
+    const payload = {
+      ...saleForm,
+      precio_venta: Number(saleForm.precio_venta),
+      tasa_cambio: saleForm.tasa_cambio !== "" ? Number(saleForm.tasa_cambio) : null,
+      ...(editingSaleId ? {} : { vehicle_id: selectedSalesVehicle.id })
+    };
+    fetch(url, {
+      method,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    })
+      .then(async (res) => {
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.message || "Error guardando venta");
+        return data;
+      })
+      .then(() => {
+        loadSales(selectedSalesVehicle.id);
+        loadVehicles();
+        resetSaleForm();
+      })
+      .catch((err) => {
+        console.error(err);
+        alert(err.message);
+      });
+  };
+
+  const handleEditSale = (sale) => {
+    setSaleForm({
+      nombre_cliente: sale.nombre_cliente || "",
+      telefono_cliente: sale.telefono_cliente || "",
+      precio_venta: sale.precio_venta != null ? String(sale.precio_venta) : "",
+      moneda: sale.moneda || "USD",
+      tasa_cambio: sale.tasa_cambio != null ? String(sale.tasa_cambio) : "",
+      fecha_venta: (sale.fecha_venta || sale.fecha_Venta || "").split("T")[0],
+      metodo_pago: sale.metodo_pago || "",
+      notas: sale.notas || ""
+    });
+    setEditingSaleId(sale.id);
+  };
+
+  const handleDeleteSale = (saleId) => {
+    if (!window.confirm("¿Seguro que deseas eliminar esta venta?")) return;
+    fetch(`http://127.0.0.1:5000/sales/${saleId}`, { method: "DELETE" })
+      .then((res) => res.json())
+      .then(() => {
+        if (selectedSalesVehicle) {
+          loadSales(selectedSalesVehicle.id);
+          loadVehicles();
+        }
+        if (editingSaleId === saleId) resetSaleForm();
+      })
+      .catch((err) => console.error(err));
   };
 
   useEffect(() => {
@@ -612,6 +712,15 @@ function App() {
                       >
                         Costos
                       </button>
+                      <button
+                        className="btn btn-primary"
+                        onClick={() => {
+                          setSelectedSalesVehicle(v);
+                          loadSales(v.id);
+                        }}
+                      >
+                        Venta
+                      </button>
                       {salesByVehicleId[v.id] && (
                         <button className="btn btn-secondary" onClick={() => handlePrintReceipt(v)}>
                           Factura
@@ -731,6 +840,75 @@ function App() {
             <button className="btn btn-secondary" type="button" onClick={loadReport}>
               Ver reporte de costos
             </button>
+          </div>
+        </section>
+      )}
+
+      {selectedSalesVehicle && (
+        <section className="panel costs-panel">
+          <div className="panel-title-row">
+            <h2>
+              Ventas de {selectedSalesVehicle.marca} {selectedSalesVehicle.modelo}
+            </h2>
+          </div>
+          <form onSubmit={handleAddSale} className="form-grid cost-form-grid">
+            <input className="input-control" name="nombre_cliente" placeholder="Nombre cliente" value={saleForm.nombre_cliente} onChange={handleSaleChange} required />
+            <input className="input-control" name="telefono_cliente" placeholder="Teléfono cliente" value={saleForm.telefono_cliente} onChange={handleSaleChange} />
+            <input className="input-control" name="precio_venta" type="number" placeholder="Precio venta" value={saleForm.precio_venta} onChange={handleSaleChange} required />
+            <input className="input-control" name="moneda" placeholder="Moneda (USD, DOP)" value={saleForm.moneda} onChange={handleSaleChange} />
+            <input className="input-control" name="tasa_cambio" type="number" placeholder="Tasa de cambio" value={saleForm.tasa_cambio} onChange={handleSaleChange} />
+            <input className="input-control" name="fecha_venta" type="date" value={saleForm.fecha_venta} onChange={handleSaleChange} />
+            <input className="input-control" name="metodo_pago" placeholder="Método de pago" value={saleForm.metodo_pago} onChange={handleSaleChange} />
+            <input className="input-control" name="notas" placeholder="Notas" value={saleForm.notas} onChange={handleSaleChange} />
+            <div className="cost-form-actions">
+              <button className="btn btn-primary" type="submit">
+                {editingSaleId ? "Actualizar venta" : "Crear venta"}
+              </button>
+              {editingSaleId && (
+                <button className="btn btn-secondary" type="button" onClick={resetSaleForm}>
+                  Cancelar edición
+                </button>
+              )}
+            </div>
+          </form>
+          <div className="table-wrapper">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>Cliente</th>
+                  <th>Teléfono</th>
+                  <th className="numeric">Precio</th>
+                  <th>Moneda</th>
+                  <th>Fecha</th>
+                  <th>Método pago</th>
+                  <th>Notas</th>
+                  <th>Acciones</th>
+                </tr>
+              </thead>
+              <tbody>
+                {sales.map((s) => (
+                  <tr key={s.id}>
+                    <td>{s.nombre_cliente}</td>
+                    <td>{s.telefono_cliente}</td>
+                    <td className="numeric">{formatMoney(s.precio_venta)}</td>
+                    <td>{s.moneda}</td>
+                    <td>{(s.fecha_venta || s.fecha_Venta || "").split("T")[0]}</td>
+                    <td>{s.metodo_pago}</td>
+                    <td>{s.notas}</td>
+                    <td>
+                      <div className="table-actions">
+                        <button className="btn btn-secondary" onClick={() => handleEditSale(s)}>
+                          Editar
+                        </button>
+                        <button className="btn btn-danger" onClick={() => handleDeleteSale(s.id)}>
+                          Eliminar
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         </section>
       )}
