@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, Cell, ResponsiveContainer } from "recharts";
 import "./App.css";
 import { exportCostReport, EXPORT_FORMATS } from "./reportExport";
+import { buildReceiptHtml } from "./receiptTemplate";
 
 const ESTADOS = [
   "inventario",
@@ -36,7 +37,6 @@ const coloresEstado = {
 };
 
 const estadoLabel = (estado) => estado.replaceAll("_", " ");
-
 function App() {
   const [vehicles, setVehicles] = useState([]);
   const [form, setForm] = useState({
@@ -51,9 +51,25 @@ function App() {
   const loadVehicles = () => {
     fetch("http://127.0.0.1:5000/vehicles")
       .then((res) => res.json())
-      .then((data) => {
+      .then(async (data) => {
         console.log("DATA BACKEND:", data);
-        setVehicles(data.data || []);
+        const list = data.data || [];
+        setVehicles(list);
+
+        const salesMapEntries = await Promise.all(
+          list.map(async (vehicle) => {
+            try {
+              const response = await fetch(`http://127.0.0.1:5000/vehicles/${vehicle.id}/sales`);
+              const payload = await response.json();
+              const hasSale = response.ok && Array.isArray(payload?.data) && payload.data.length > 0;
+              return [vehicle.id, hasSale];
+            } catch (_error) {
+              return [vehicle.id, false];
+            }
+          })
+        );
+
+        setSalesByVehicleId(Object.fromEntries(salesMapEntries));
       });
   };
 
@@ -87,6 +103,7 @@ function App() {
   const [loadingReport, setLoadingReport] = useState(false);
   const [reportVisible, setReportVisible] = useState(false);
   const [exportingReport, setExportingReport] = useState(false);
+  const [salesByVehicleId, setSalesByVehicleId] = useState({});
   const [costForm, setCostForm] = useState({
     tipo: "",
     monto: "",
@@ -497,6 +514,18 @@ function App() {
     }).format(value || 0);
   };
 
+  const formatMoneyByCurrency = (value, currency = "USD") => {
+    try {
+      return new Intl.NumberFormat("es-DO", {
+        style: "currency",
+        currency,
+        minimumFractionDigits: 2
+      }).format(value || 0);
+    } catch (_error) {
+      return `${currency} ${Number(value || 0).toFixed(2)}`;
+    }
+  };
+
   const formatDate = (value) => {
     if (!value) return "—";
     const date = new Date(value);
@@ -574,6 +603,47 @@ function App() {
       alert(error.message || "No se pudo exportar el reporte.");
     } finally {
       setExportingReport(false);
+    }
+  };
+
+  const handlePrintReceipt = async (vehicle) => {
+    const receiptWindow = window.open("", "_blank");
+
+    if (!receiptWindow) {
+      alert("No se pudo abrir la ventana de factura. Habilita los pop-ups e inténtalo de nuevo.");
+      return;
+    }
+
+    receiptWindow.document.write("<p style='font-family: Arial, sans-serif; padding: 16px;'>Generando factura...</p>");
+
+    try {
+      const response = await fetch(`http://127.0.0.1:5000/vehicles/${vehicle.id}/sales`);
+      const payload = await response.json();
+      const sale = payload?.data?.[0];
+
+      if (!response.ok) {
+        throw new Error(payload.message || "No se pudo cargar la venta.");
+      }
+
+      if (!sale) {
+        receiptWindow.close();
+        alert("Este vehículo no tiene una venta registrada para facturar.");
+        return;
+      }
+
+      receiptWindow.document.open();
+      receiptWindow.document.write(buildReceiptHtml({ vehicle, sale, estadoLabel }));
+      receiptWindow.document.close();
+      receiptWindow.focus();
+      receiptWindow.onload = () => {
+        receiptWindow.print();
+      };
+    } catch (error) {
+      if (!receiptWindow.closed) {
+        receiptWindow.close();
+      }
+      console.error("Error generando factura:", error);
+      alert("No se pudo generar la factura. Intenta nuevamente.");
     }
   };
 
@@ -727,17 +797,11 @@ function App() {
                       >
                         Costos
                       </button>
-                      <button
-                        className="btn btn-sale"
-                        onClick={() => {
-                          setSelectedSaleVehicle(v);
-                          setEditingSaleId(null);
-                          resetSaleForm();
-                          loadVehicleSale(v.id);
-                        }}
-                      >
-                        Venta
-                      </button>
+                      {salesByVehicleId[v.id] && (
+                        <button className="btn btn-secondary" onClick={() => handlePrintReceipt(v)}>
+                          Factura
+                        </button>
+                      )}
                     </div>
                   </td>
                 </tr>
