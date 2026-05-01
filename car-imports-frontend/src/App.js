@@ -310,12 +310,13 @@ function App() {
       precio_venta: sale.precio_venta != null ? String(sale.precio_venta) : "",
       moneda: sale.moneda || "USD",
       tasa_cambio: sale.tasa_cambio != null ? String(sale.tasa_cambio) : "",
-      fecha_venta: (sale.fecha_venta || sale.fecha_Venta || "").split("T")[0],
+      fecha_venta: toDateInputValue(sale.fecha_venta || sale.fecha),
       metodo_pago: sale.metodo_pago || "",
       notas: sale.notas || ""
     });
+
     setEditingSaleId(sale.id);
-  };
+};
 
   const handleDeleteSale = (saleId) => {
     if (!window.confirm("¿Seguro que deseas eliminar esta venta?")) return;
@@ -441,11 +442,51 @@ function App() {
     }
   };
 
+
+  const toDateInputValue = (value) => {
+    if (!value) return "";
+
+    const text = String(value);
+
+    // Caso: "2026-05-01"
+    if (/^\d{4}-\d{2}-\d{2}/.test(text)) {
+      return text.slice(0, 10);
+    }
+
+    // Caso: "Fri, 01 May 2026 00:00:00 GMT"
+    const date = new Date(text);
+
+    if (Number.isNaN(date.getTime())) {
+      return "";
+    }
+
+    const year = date.getUTCFullYear();
+    const month = String(date.getUTCMonth() + 1).padStart(2, "0");
+    const day = String(date.getUTCDate()).padStart(2, "0");
+
+    return `${year}-${month}-${day}`;
+};
+
+
   const formatDate = (value) => {
     if (!value) return "—";
-    const date = new Date(value);
-    if (Number.isNaN(date.getTime())) return value;
-    return date.toLocaleDateString("es-DO");
+
+    const text = String(value);
+
+    if (/^\d{4}-\d{2}-\d{2}/.test(text)) {
+      const cleanDate = text.slice(0, 10);
+      const [year, month, day] = cleanDate.split("-");
+      return `${day}/${month}/${year}`;
+    }
+
+    const date = new Date(text);
+    if (Number.isNaN(date.getTime())) return text;
+
+    const day = String(date.getUTCDate()).padStart(2, "0");
+    const month = String(date.getUTCMonth() + 1).padStart(2, "0");
+    const year = date.getUTCFullYear();
+
+    return `${day}/${month}/${year}`;
   };
 
   const loadReport = async () => {
@@ -886,28 +927,28 @@ function App() {
                 </tr>
               </thead>
               <tbody>
-                {sales.map((s) => (
-                  <tr key={s.id}>
-                    <td>{s.nombre_cliente}</td>
-                    <td>{s.telefono_cliente}</td>
-                    <td className="numeric">{formatMoney(s.precio_venta)}</td>
-                    <td>{s.moneda}</td>
-                    <td>{(s.fecha_venta || s.fecha_Venta || "").split("T")[0]}</td>
-                    <td>{s.metodo_pago}</td>
-                    <td>{s.notas}</td>
-                    <td>
-                      <div className="table-actions">
-                        <button className="btn btn-secondary" onClick={() => handleEditSale(s)}>
-                          Editar
-                        </button>
-                        <button className="btn btn-danger" onClick={() => handleDeleteSale(s.id)}>
-                          Eliminar
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
+			    {sales.map((s) => (
+			      <tr key={s.id}>
+			        <td>{s.nombre_cliente}</td>
+			        <td>{s.telefono_cliente}</td>
+			        <td className="numeric">{formatMoney(s.precio_venta)}</td>
+			        <td>{s.moneda}</td>
+			        <td>{formatDate(s.fecha_venta || s.fecha)}</td>
+			        <td>{s.metodo_pago}</td>
+			        <td>{s.notas}</td>
+			        <td>
+			          <div className="table-actions">
+			            <button className="btn btn-secondary" onClick={() => handleEditSale(s)}>
+			              Editar
+			            </button>
+			            <button className="btn btn-danger" onClick={() => handleDeleteSale(s.id)}>
+			              Eliminar
+			            </button>
+			          </div>
+			        </td>
+			      </tr>
+			    ))}
+			</tbody>
             </table>
           </div>
         </section>

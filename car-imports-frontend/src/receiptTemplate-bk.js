@@ -7,28 +7,15 @@ const escapeHtml = (value) =>
     .replaceAll("'", "&#39;");
 
 const formatDate = (value) => {
-  if (!value) return "—";
+    if (!value) return "—";
 
-  const text = String(value);
+    const text = String(value);
 
-  if (/^\d{4}-\d{2}-\d{2}/.test(text)) {
-    const cleanDate = text.slice(0, 10);
-    const [year, month, day] = cleanDate.split("-");
-    return `${day}/${month}/${year}`;
-  }
-
-  const date = new Date(text);
-
-  if (Number.isNaN(date.getTime())) {
-    return text;
-  }
-
-  const day = String(date.getUTCDate()).padStart(2, "0");
-  const month = String(date.getUTCMonth() + 1).padStart(2, "0");
-  const year = date.getUTCFullYear();
-
-  return `${day}/${month}/${year}`;
-};
+    if (/^\d{4}-\d{2}-\d{2}/.test(text)) {
+      const cleanDate = text.slice(0, 10);
+      const [year, month, day] = cleanDate.split("-");
+      return `${day}/${month}/${year}`;
+    };
 
 const formatMoneyByCurrency = (value, currency = "USD") => {
   try {
@@ -60,23 +47,9 @@ export const buildReceiptHtml = ({ vehicle, sale, estadoLabel }) => {
   return `<!DOCTYPE html>
 <html lang="es">
   <head>
-    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px; border-bottom:2px solid #000; padding-bottom:10px;">
-
-	  <div>
-	    <h2 style="margin:0;">${company.name}</h2>
-	    <p style="margin:2px 0;">RNC: ${company.rnc}</p>
-	    <p style="margin:2px 0;">${company.address}</p>
-	    <p style="margin:2px 0;">Tel: ${company.phone}</p>
-	    <p style="margin:2px 0;">${company.city}</p>
-	  </div>
-
-	  <div style="text-align:right;">
-	    <h3 style="margin:0;">Factura de Venta</h3>
-	    <p style="margin:2px 0;"><strong>Fecha:</strong> ${formatDate(sale.fecha_venta)}</p>
-	    <p style="margin:2px 0;"><strong>Factura #:</strong> INV-${sale.id}</p>
-	  </div>
-
-     </div>
+    <meta charset="UTF-8" />
+    <title>Recibo de venta - Vehículo ${escapeHtml(vehicle.id)}</title>
+    <style>body{margin:0;font-family:Inter,Arial,sans-serif;background:#f1f5f9;color:#0f172a;padding:24px}.receipt{max-width:840px;margin:0 auto;background:#fff;border:1px solid #e2e8f0;border-radius:14px;padding:28px}.receipt-header{display:flex;justify-content:space-between;gap:12px;border-bottom:2px solid #2563eb;padding-bottom:12px;margin-bottom:18px}.receipt-header h1{margin:0;font-size:24px;color:#1e3a8a}.receipt-subtitle{margin-top:6px;color:#64748b}.section{margin-bottom:20px}.section h2{font-size:16px;margin-bottom:10px;color:#334155}.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px 14px}.field{border:1px solid #e2e8f0;border-radius:10px;padding:10px 12px;background:#f8fafc}.label{display:block;color:#64748b;font-size:12px;margin-bottom:4px}.value{font-size:14px;font-weight:600}.total-box{margin-top:10px;border:2px solid #1d4ed8;border-radius:12px;padding:14px;background:#eff6ff}.total-box .label{font-size:13px}.total-box .value{font-size:24px;color:#1d4ed8}.notes{margin-top:8px;padding:10px 12px;border-radius:10px;border:1px solid #e2e8f0;background:#f8fafc;white-space:pre-wrap}.footer{margin-top:26px;color:#64748b;font-size:12px;text-align:center}@media print{body{background:#fff;padding:0}.receipt{border:none;border-radius:0;box-shadow:none;max-width:none;padding:0}}</style>
   </head>
   <body>
     <main class="receipt">

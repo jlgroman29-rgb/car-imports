@@ -569,6 +569,15 @@ def create_sale():
 
         cur.execute(query, tuple(values))
         new_id = cur.fetchone()[0]
+        
+        # Regla de negocio: cuando se registra una venta,
+        # el vehículo debe salir del inventario disponible.
+        cur.execute("""
+            UPDATE vehicles
+            SET estado = 'vendido',
+                fecha_venta = COALESCE(%s, CURRENT_DATE)
+            WHERE id = %s;
+        """, (fecha_venta, vehicle_id))
 
         conn.commit()
         cur.close()
@@ -811,7 +820,9 @@ def delete_sale(id):
         - id (int, requerido): ID de la venta.
 
     Comportamiento:
-        - Ejecuta un DELETE con `RETURNING id` para confirmar si existía el registro.
+        - Elimina la venta.
+        - Si la venta existe, revierte el vehículo asociado a estado disponible.
+        - Limpia fecha_venta del vehículo.
 
     Respuestas HTTP:
         - 200: venta eliminada.
@@ -822,16 +833,34 @@ def delete_sale(id):
         conn = get_connection()
         cur = conn.cursor()
 
-        # Uso de RETURNING para distinguir entre "no existe" y eliminación exitosa.
-        cur.execute("DELETE FROM sales WHERE id = %s RETURNING id;", (id,))
+        # Eliminamos la venta y recuperamos el vehículo asociado.
+        cur.execute("""
+            DELETE FROM sales
+            WHERE id = %s
+            RETURNING id, vehicle_id;
+        """, (id,))
+
         deleted = cur.fetchone()
+
+        if deleted is None:
+            conn.commit()
+            cur.close()
+            conn.close()
+            return {"status": "error", "message": "Venta no encontrada"}, 404
+
+        vehicle_id = deleted[1]
+
+        # Al eliminar la venta, el vehículo vuelve a estar disponible.
+        cur.execute("""
+            UPDATE vehicles
+            SET estado = 'disponible',
+                fecha_venta = NULL
+            WHERE id = %s;
+        """, (vehicle_id,))
 
         conn.commit()
         cur.close()
         conn.close()
-
-        if deleted is None:
-            return {"status": "error", "message": "Venta no encontrada"}, 404
 
         return {"status": "success", "message": f"Venta {id} eliminada"}
 
@@ -1120,6 +1149,43 @@ def vehicles_real_profit():
 
     except Exception as e:
         return {"error": str(e)}, 500
+
+@app.route("/debug/db", methods=["GET"])
+def debug_db():
+    try:
+        conn = get_connection()
+        cur = conn.cursor()
+
+        cur.execute("SELECT current_database(), inet_server_port();")
+        db_info = cur.fetchone()
+
+        cur.execute("""
+            SELECT id, vehicle_id, precio_venta, fecha_venta, nombre_cliente
+            FROM sales
+            ORDER BY id;
+        """)
+        sales = cur.fetchall()
+
+        cur.close()
+        conn.close()
+
+        return {
+            "database": db_info[0],
+            "port": db_info[1],
+            "sales": [
+                {
+                    "id": r[0],
+                    "vehicle_id": r[1],
+                    "precio_venta": float(r[2]) if r[2] is not None else None,
+                    "fecha_venta": str(r[3]) if r[3] is not None else None,
+                    "nombre_cliente": r[4]
+                }
+                for r in sales
+            ]
+        }
+
+    except Exception as e:
+        return {"error": str(e)}, 500        
 
 
 if __name__ == "__main__":
