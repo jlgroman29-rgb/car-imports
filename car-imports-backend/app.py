@@ -135,6 +135,26 @@ def normalize_sale(row, columns):
         "created_at": row.get("created_at"),
     }
 
+
+def serialize_profit_row(row):
+    total_costos = float(row["total_costos"]) if row["total_costos"] is not None else 0.0
+    total_venta = float(row["total_venta"]) if row["total_venta"] is not None else 0.0
+    ganancia_real = float(row["ganancia_real"]) if row["ganancia_real"] is not None else 0.0
+    margen = (ganancia_real / total_venta * 100) if total_venta > 0 else 0.0
+
+    return {
+        "vehicle_id": row["vehicle_id"],
+        "vin": row["vin"],
+        "marca": row["marca"],
+        "modelo": row["modelo"],
+        "anio": row["anio"],
+        "estado": row["estado"],
+        "total_costos": total_costos,
+        "total_venta": total_venta,
+        "ganancia_real": ganancia_real,
+        "margen_porcentaje": margen,
+    }
+
 @app.route("/")
 def home():
     return {"message": "API funcionando 🚗"}
@@ -690,6 +710,133 @@ def get_sales_by_vehicle(vehicle_id):
         data = [normalize_sale(row, sales_columns) for row in rows]
         return {"status": "success", "data": data}
 
+    except Exception as e:
+        return {"status": "error", "message": str(e)}, 500
+
+
+@app.route("/vehicles/<int:vehicle_id>/profit", methods=["GET"])
+def get_profit_by_vehicle(vehicle_id):
+    """
+    Obtiene la ganancia real de un vehículo específico.
+
+    Parámetros de ruta:
+        - vehicle_id (int, requerido): ID del vehículo.
+
+    Fórmulas:
+        - total_venta = precio_venta * COALESCE(tasa_cambio, 1)
+        - total_costos = SUM(monto * COALESCE(tasa_cambio, 1))
+        - ganancia_real = total_venta - total_costos
+        - margen_porcentaje = (ganancia_real / total_venta) * 100 si total_venta > 0, de lo contrario 0
+
+    Respuestas HTTP:
+        - 200: resumen de ganancia del vehículo.
+        - 404: vehículo no existe.
+        - 500: error interno.
+    """
+    try:
+        conn = get_connection()
+        import psycopg2.extras
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+        cur.execute("""
+            SELECT
+                v.id AS vehicle_id,
+                v.vin,
+                v.marca,
+                v.modelo,
+                v.anio,
+                v.estado,
+                COALESCE(costs_agg.total_costos, 0) AS total_costos,
+                COALESCE(sales_agg.total_venta, 0) AS total_venta,
+                COALESCE(sales_agg.total_venta, 0) - COALESCE(costs_agg.total_costos, 0) AS ganancia_real
+            FROM vehicles v
+            LEFT JOIN (
+                SELECT
+                    vehicle_id,
+                    SUM(monto * COALESCE(tasa_cambio, 1)) AS total_costos
+                FROM costs
+                GROUP BY vehicle_id
+            ) costs_agg ON costs_agg.vehicle_id = v.id
+            LEFT JOIN (
+                SELECT
+                    vehicle_id,
+                    MAX(precio_venta * COALESCE(tasa_cambio, 1)) AS total_venta
+                FROM sales
+                GROUP BY vehicle_id
+            ) sales_agg ON sales_agg.vehicle_id = v.id
+            WHERE v.id = %s;
+        """, (vehicle_id,))
+
+        row = cur.fetchone()
+        cur.close()
+        conn.close()
+
+        if row is None:
+            return {"status": "error", "message": f"Vehículo {vehicle_id} no existe"}, 404
+
+        return {"status": "success", "data": serialize_profit_row(row)}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}, 500
+
+
+@app.route("/vehicles/profit-report", methods=["GET"])
+def get_profit_report():
+    """
+    Lista la ganancia real de todos los vehículos.
+
+    Campos de salida por vehículo:
+        - vehicle_id, vin, marca, modelo, anio, estado
+        - total_costos, total_venta, ganancia_real, margen_porcentaje
+
+    Reglas:
+        - Si no hay venta, total_venta retorna 0.
+        - Si no hay costos, total_costos retorna 0.
+        - Evita división por cero en margen.
+
+    Respuestas HTTP:
+        - 200: reporte completo.
+        - 500: error interno.
+    """
+    try:
+        conn = get_connection()
+        import psycopg2.extras
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+        cur.execute("""
+            SELECT
+                v.id AS vehicle_id,
+                v.vin,
+                v.marca,
+                v.modelo,
+                v.anio,
+                v.estado,
+                COALESCE(costs_agg.total_costos, 0) AS total_costos,
+                COALESCE(sales_agg.total_venta, 0) AS total_venta,
+                COALESCE(sales_agg.total_venta, 0) - COALESCE(costs_agg.total_costos, 0) AS ganancia_real
+            FROM vehicles v
+            LEFT JOIN (
+                SELECT
+                    vehicle_id,
+                    SUM(monto * COALESCE(tasa_cambio, 1)) AS total_costos
+                FROM costs
+                GROUP BY vehicle_id
+            ) costs_agg ON costs_agg.vehicle_id = v.id
+            LEFT JOIN (
+                SELECT
+                    vehicle_id,
+                    MAX(precio_venta * COALESCE(tasa_cambio, 1)) AS total_venta
+                FROM sales
+                GROUP BY vehicle_id
+            ) sales_agg ON sales_agg.vehicle_id = v.id
+            ORDER BY v.id DESC;
+        """)
+
+        rows = cur.fetchall()
+        cur.close()
+        conn.close()
+
+        data = [serialize_profit_row(row) for row in rows]
+        return {"status": "success", "data": data}
     except Exception as e:
         return {"status": "error", "message": str(e)}, 500
 
