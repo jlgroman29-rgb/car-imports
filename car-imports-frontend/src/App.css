@@ -332,3 +332,34 @@ h1 {
     width: 100%;
   }
 }
+
+.profit-panel {
+  border: 1px solid #bbf7d0;
+}
+
+.profit-summary-grid {
+  margin-top: 14px;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+}
+
+.profit-value {
+  font-weight: 700;
+}
+
+.profit-positive {
+  border-left: 4px solid #16a34a;
+}
+
+.profit-negative {
+  border-left: 4px solid #dc2626;
+}
+
+.profit-positive-text {
+  color: #166534;
+}
+
+.profit-negative-text {
+  color: #b91c1c;
+}
