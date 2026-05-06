@@ -817,8 +817,8 @@ def get_profit_by_vehicle(vehicle_id):
             conn.close()
             return date_error
 
-        costs_filter_clause, costs_filter_params = build_date_filter_clause("fecha", start_date, end_date)
         sales_filter_clause, sales_filter_params = build_date_filter_clause(sales_date_column, start_date, end_date)
+        has_date_filter = bool(start_date or end_date)
 
         import psycopg2.extras
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
@@ -840,7 +840,6 @@ def get_profit_by_vehicle(vehicle_id):
                     vehicle_id,
                     SUM(monto * COALESCE(tasa_cambio, 1)) AS total_costos
                 FROM costs
-                WHERE 1=1{costs_filter_clause}
                 GROUP BY vehicle_id
             ) costs_agg ON costs_agg.vehicle_id = v.id
             LEFT JOIN (
@@ -851,8 +850,9 @@ def get_profit_by_vehicle(vehicle_id):
                 WHERE 1=1{sales_filter_clause}
                 GROUP BY vehicle_id
             ) sales_agg ON sales_agg.vehicle_id = v.id
-            WHERE v.id = %s;
-        """, (*costs_filter_params, *sales_filter_params, vehicle_id))
+            WHERE v.id = %s
+              AND (%s = false OR sales_agg.vehicle_id IS NOT NULL);
+        """, (*sales_filter_params, vehicle_id, has_date_filter))
 
         row = cur.fetchone()
         cur.close()
@@ -893,8 +893,8 @@ def get_profit_report():
             conn.close()
             return date_error
 
-        costs_filter_clause, costs_filter_params = build_date_filter_clause("fecha", start_date, end_date)
         sales_filter_clause, sales_filter_params = build_date_filter_clause(sales_date_column, start_date, end_date)
+        has_date_filter = bool(start_date or end_date)
 
         import psycopg2.extras
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
@@ -916,7 +916,6 @@ def get_profit_report():
                     vehicle_id,
                     SUM(monto * COALESCE(tasa_cambio, 1)) AS total_costos
                 FROM costs
-                WHERE 1=1{costs_filter_clause}
                 GROUP BY vehicle_id
             ) costs_agg ON costs_agg.vehicle_id = v.id
             LEFT JOIN (
@@ -927,8 +926,9 @@ def get_profit_report():
                 WHERE 1=1{sales_filter_clause}
                 GROUP BY vehicle_id
             ) sales_agg ON sales_agg.vehicle_id = v.id
+            WHERE %s = false OR sales_agg.vehicle_id IS NOT NULL
             ORDER BY v.id DESC;
-        """, (*costs_filter_params, *sales_filter_params))
+        """, (*sales_filter_params, has_date_filter))
 
         rows = cur.fetchall()
         cur.close()
@@ -1351,8 +1351,8 @@ def vehicles_real_profit():
             conn.close()
             return date_error
 
-        costs_filter_clause, costs_filter_params = build_date_filter_clause("fecha", start_date, end_date)
         sales_filter_clause, sales_filter_params = build_date_filter_clause(sales_date_column, start_date, end_date, "s")
+        has_date_filter = bool(start_date or end_date)
 
         cur = conn.cursor()
 
@@ -1362,7 +1362,6 @@ def vehicles_real_profit():
                 vehicle_id,
                 COALESCE(SUM(monto * COALESCE(tasa_cambio, 1)), 0) AS total_costos
             FROM costs
-            WHERE 1=1{costs_filter_clause}
             GROUP BY vehicle_id
         ),
         sales_by_vehicle AS (
@@ -1394,10 +1393,11 @@ def vehicles_real_profit():
         FROM vehicles v
         LEFT JOIN costs_by_vehicle cbv ON cbv.vehicle_id = v.id
         LEFT JOIN sales_by_vehicle sbv ON sbv.vehicle_id = v.id
+        WHERE %s = false OR sbv.vehicle_id IS NOT NULL
         ORDER BY v.id;
         """
 
-        cur.execute(query, (*costs_filter_params, *sales_filter_params))
+        cur.execute(query, (*sales_filter_params, has_date_filter))
         result = cur.fetchall()
 
         cur.close()
