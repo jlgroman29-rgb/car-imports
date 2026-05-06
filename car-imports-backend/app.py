@@ -1,4 +1,5 @@
 from flask import Flask, request
+from datetime import datetime
 import psycopg2
 from flasgger import Swagger
 from flask_cors import CORS
@@ -34,6 +35,60 @@ def get_connection():
         user="postgres",
         password="postgres",
     )
+
+
+
+def parse_date_filter(value, field_name):
+    if not value:
+        return None, None
+
+    try:
+        return datetime.strptime(value, "%Y-%m-%d").date(), None
+    except ValueError:
+        return None, {
+            "status": "error",
+            "message": f"{field_name} debe tener formato YYYY-MM-DD"
+        }
+
+
+def get_date_filters():
+    start_date, start_error = parse_date_filter(request.args.get("start_date"), "start_date")
+    if start_error:
+        return None, None, (start_error, 400)
+
+    end_date, end_error = parse_date_filter(request.args.get("end_date"), "end_date")
+    if end_error:
+        return None, None, (end_error, 400)
+
+    if start_date and end_date and start_date > end_date:
+        return None, None, ({
+            "status": "error",
+            "message": "start_date no puede ser posterior a end_date"
+        }, 400)
+
+    return start_date, end_date, None
+
+
+def build_date_filter_clause(column_name, start_date, end_date, table_alias=None):
+    if not column_name:
+        return "", []
+
+    qualified_column = f"{table_alias}.{column_name}" if table_alias else column_name
+    filters = []
+    params = []
+
+    if start_date:
+        filters.append(f"{qualified_column}::date >= %s")
+        params.append(start_date)
+
+    if end_date:
+        filters.append(f"{qualified_column}::date <= %s")
+        params.append(end_date)
+
+    if not filters:
+        return "", []
+
+    return " AND " + " AND ".join(filters), params
 
 def map_vehicle(row):
     return {
@@ -631,12 +686,26 @@ def get_sales():
         conn = get_connection()
         sales_columns = get_table_columns(conn, "sales")
         date_column = get_sales_date_column(sales_columns)
+        start_date, end_date, date_error = get_date_filters()
+        if date_error:
+            conn.close()
+            return date_error
+
+        date_filter_clause, date_filter_params = build_date_filter_clause(date_column, start_date, end_date)
 
         import psycopg2.extras
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         if date_column:
             # Prioriza ventas más recientes usando la fecha disponible en el esquema actual.
-            cur.execute(f"SELECT * FROM sales ORDER BY COALESCE({date_column}, NOW()) DESC, id DESC;")
+            cur.execute(
+                f"""
+                SELECT *
+                FROM sales
+                WHERE 1=1{date_filter_clause}
+                ORDER BY COALESCE({date_column}, NOW()) DESC, id DESC;
+                """,
+                tuple(date_filter_params)
+            )
         else:
             # Fallback cuando no hay columna de fecha en la tabla.
             cur.execute("SELECT * FROM sales ORDER BY id DESC;")
@@ -678,6 +747,12 @@ def get_sales_by_vehicle(vehicle_id):
         conn = get_connection()
         sales_columns = get_table_columns(conn, "sales")
         date_column = get_sales_date_column(sales_columns)
+        start_date, end_date, date_error = get_date_filters()
+        if date_error:
+            conn.close()
+            return date_error
+
+        date_filter_clause, date_filter_params = build_date_filter_clause(date_column, start_date, end_date)
 
         import psycopg2.extras
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
@@ -692,9 +767,9 @@ def get_sales_by_vehicle(vehicle_id):
             cur.execute(f"""
                 SELECT *
                 FROM sales
-                WHERE vehicle_id = %s
+                WHERE vehicle_id = %s{date_filter_clause}
                 ORDER BY COALESCE({date_column}, NOW()) DESC, id DESC;
-            """, (vehicle_id,))
+            """, (vehicle_id, *date_filter_params))
         else:
             cur.execute("""
                 SELECT *
@@ -735,10 +810,20 @@ def get_profit_by_vehicle(vehicle_id):
     """
     try:
         conn = get_connection()
+        sales_columns = get_table_columns(conn, "sales")
+        sales_date_column = get_sales_date_column(sales_columns)
+        start_date, end_date, date_error = get_date_filters()
+        if date_error:
+            conn.close()
+            return date_error
+
+        costs_filter_clause, costs_filter_params = build_date_filter_clause("fecha", start_date, end_date)
+        sales_filter_clause, sales_filter_params = build_date_filter_clause(sales_date_column, start_date, end_date)
+
         import psycopg2.extras
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
-        cur.execute("""
+        cur.execute(f"""
             SELECT
                 v.id AS vehicle_id,
                 v.vin,
@@ -755,6 +840,7 @@ def get_profit_by_vehicle(vehicle_id):
                     vehicle_id,
                     SUM(monto * COALESCE(tasa_cambio, 1)) AS total_costos
                 FROM costs
+                WHERE 1=1{costs_filter_clause}
                 GROUP BY vehicle_id
             ) costs_agg ON costs_agg.vehicle_id = v.id
             LEFT JOIN (
@@ -762,10 +848,11 @@ def get_profit_by_vehicle(vehicle_id):
                     vehicle_id,
                     MAX(precio_venta * COALESCE(tasa_cambio, 1)) AS total_venta
                 FROM sales
+                WHERE 1=1{sales_filter_clause}
                 GROUP BY vehicle_id
             ) sales_agg ON sales_agg.vehicle_id = v.id
             WHERE v.id = %s;
-        """, (vehicle_id,))
+        """, (*costs_filter_params, *sales_filter_params, vehicle_id))
 
         row = cur.fetchone()
         cur.close()
@@ -799,10 +886,20 @@ def get_profit_report():
     """
     try:
         conn = get_connection()
+        sales_columns = get_table_columns(conn, "sales")
+        sales_date_column = get_sales_date_column(sales_columns)
+        start_date, end_date, date_error = get_date_filters()
+        if date_error:
+            conn.close()
+            return date_error
+
+        costs_filter_clause, costs_filter_params = build_date_filter_clause("fecha", start_date, end_date)
+        sales_filter_clause, sales_filter_params = build_date_filter_clause(sales_date_column, start_date, end_date)
+
         import psycopg2.extras
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
-        cur.execute("""
+        cur.execute(f"""
             SELECT
                 v.id AS vehicle_id,
                 v.vin,
@@ -819,6 +916,7 @@ def get_profit_report():
                     vehicle_id,
                     SUM(monto * COALESCE(tasa_cambio, 1)) AS total_costos
                 FROM costs
+                WHERE 1=1{costs_filter_clause}
                 GROUP BY vehicle_id
             ) costs_agg ON costs_agg.vehicle_id = v.id
             LEFT JOIN (
@@ -826,10 +924,11 @@ def get_profit_report():
                     vehicle_id,
                     MAX(precio_venta * COALESCE(tasa_cambio, 1)) AS total_venta
                 FROM sales
+                WHERE 1=1{sales_filter_clause}
                 GROUP BY vehicle_id
             ) sales_agg ON sales_agg.vehicle_id = v.id
             ORDER BY v.id DESC;
-        """)
+        """, (*costs_filter_params, *sales_filter_params))
 
         rows = cur.fetchall()
         cur.close()
@@ -1074,6 +1173,12 @@ def create_cost():
 @app.route("/vehicles/<int:vehicle_id>/costs", methods=["GET"])
 def get_costs_by_vehicle(vehicle_id):
     try:
+        start_date, end_date, date_error = get_date_filters()
+        if date_error:
+            return date_error
+
+        date_filter_clause, date_filter_params = build_date_filter_clause("fecha", start_date, end_date)
+
         conn = get_connection()
         cur = conn.cursor()
 
@@ -1089,8 +1194,9 @@ def get_costs_by_vehicle(vehicle_id):
                 descripcion
             FROM costs
             WHERE vehicle_id = %s
+        """ + date_filter_clause + """
             ORDER BY COALESCE(fecha, NOW()) DESC, id DESC;
-        """, (vehicle_id,))
+        """, (vehicle_id, *date_filter_params))
 
         rows = cur.fetchall()
 
@@ -1209,6 +1315,12 @@ def patch_cost(id):
 @app.route("/vehicles/<int:vehicle_id>/costs/total", methods=["GET"])
 def total_costs(vehicle_id):
     try:
+        start_date, end_date, date_error = get_date_filters()
+        if date_error:
+            return date_error
+
+        date_filter_clause, date_filter_params = build_date_filter_clause("fecha", start_date, end_date)
+
         conn = get_connection()
         cur = conn.cursor()
 
@@ -1216,7 +1328,7 @@ def total_costs(vehicle_id):
             SELECT COALESCE(SUM(monto * COALESCE(tasa_cambio, 1)), 0)
             FROM costs
             WHERE vehicle_id = %s
-        """, (vehicle_id,))
+        """ + date_filter_clause, (vehicle_id, *date_filter_params))
 
         total = cur.fetchone()[0]
 
@@ -1232,14 +1344,25 @@ def total_costs(vehicle_id):
 def vehicles_real_profit():
     try:
         conn = get_connection()
+        sales_columns = get_table_columns(conn, "sales")
+        sales_date_column = get_sales_date_column(sales_columns)
+        start_date, end_date, date_error = get_date_filters()
+        if date_error:
+            conn.close()
+            return date_error
+
+        costs_filter_clause, costs_filter_params = build_date_filter_clause("fecha", start_date, end_date)
+        sales_filter_clause, sales_filter_params = build_date_filter_clause(sales_date_column, start_date, end_date, "s")
+
         cur = conn.cursor()
 
-        query = """
+        query = f"""
         WITH costs_by_vehicle AS (
             SELECT
                 vehicle_id,
                 COALESCE(SUM(monto * COALESCE(tasa_cambio, 1)), 0) AS total_costos
             FROM costs
+            WHERE 1=1{costs_filter_clause}
             GROUP BY vehicle_id
         ),
         sales_by_vehicle AS (
@@ -1256,6 +1379,7 @@ def vehicles_real_profit():
                     )
                 ), 0) AS total_ventas
             FROM sales s
+            WHERE 1=1{sales_filter_clause}
             GROUP BY s.vehicle_id
         )
         SELECT
@@ -1273,7 +1397,7 @@ def vehicles_real_profit():
         ORDER BY v.id;
         """
 
-        cur.execute(query)
+        cur.execute(query, (*costs_filter_params, *sales_filter_params))
         result = cur.fetchall()
 
         cur.close()

@@ -106,6 +106,10 @@ function App() {
   const [salesByVehicleId, setSalesByVehicleId] = useState({});
   const [profitRows, setProfitRows] = useState([]);
   const [loadingProfitReport, setLoadingProfitReport] = useState(false);
+  const [financialFilters, setFinancialFilters] = useState({
+    start_date: "",
+    end_date: ""
+  });
   const [selectedSalesVehicle, setSelectedSalesVehicle] = useState(null);
   const [sales, setSales] = useState([]);
   const [editingSaleId, setEditingSaleId] = useState(null);
@@ -497,24 +501,49 @@ function App() {
   };
 
 
-    const loadProfitReport = async () => {
-      setLoadingProfitReport(true);
+  const loadProfitReport = async (filters = financialFilters) => {
+    setLoadingProfitReport(true);
 
-      try {
-        const response = await fetch("http://127.0.0.1:5000/vehicles/profit-report");
-        const payload = await response.json();
+    const params = new URLSearchParams();
+    if (filters.start_date) params.append("start_date", filters.start_date);
+    if (filters.end_date) params.append("end_date", filters.end_date);
+    const queryString = params.toString();
+    const url = `http://127.0.0.1:5000/vehicles/profit-report${queryString ? `?${queryString}` : ""}`;
 
-        if (!response.ok) {
-          throw new Error(payload.message || "No se pudo cargar el reporte de ganancias.");
-        }
+    try {
+      const response = await fetch(url);
+      const payload = await response.json();
 
-        setProfitRows(payload.data || []);
-      } catch (error) {
-        console.error("Error cargando reporte de ganancias:", error);
-        alert("No se pudo cargar el reporte de ganancias. Intenta nuevamente.");
-      } finally {
-        setLoadingProfitReport(false);
+      if (!response.ok) {
+        throw new Error(payload.message || "No se pudo cargar el reporte de ganancias.");
       }
+
+      setProfitRows(payload.data || []);
+    } catch (error) {
+      console.error("Error cargando reporte de ganancias:", error);
+      alert("No se pudo cargar el reporte de ganancias. Intenta nuevamente.");
+    } finally {
+      setLoadingProfitReport(false);
+    }
+  };
+
+  const handleFinancialFilterChange = (event) => {
+    const { name, value } = event.target;
+    setFinancialFilters((currentFilters) => ({
+      ...currentFilters,
+      [name]: value
+    }));
+  };
+
+  const handleApplyFinancialFilters = (event) => {
+    event.preventDefault();
+    loadProfitReport(financialFilters);
+  };
+
+  const handleClearFinancialFilters = () => {
+    const cleanFilters = { start_date: "", end_date: "" };
+    setFinancialFilters(cleanFilters);
+    loadProfitReport(cleanFilters);
   };
 
   const loadReport = async () => {
@@ -1115,10 +1144,41 @@ function App() {
             <h2>Dashboard financiero ejecutivo</h2>
             <p className="panel-subtitle">Resumen consolidado desde el reporte de ganancias.</p>
           </div>
-          <button className="btn btn-secondary" type="button" onClick={loadProfitReport} disabled={loadingProfitReport}>
+          <button className="btn btn-secondary" type="button" onClick={() => loadProfitReport()} disabled={loadingProfitReport}>
             {loadingProfitReport ? "Actualizando..." : "Actualizar reporte"}
           </button>
         </div>
+
+        <form className="financial-filters" onSubmit={handleApplyFinancialFilters}>
+          <label className="filter-field">
+            <span>Desde</span>
+            <input
+              className="input-control"
+              type="date"
+              name="start_date"
+              value={financialFilters.start_date}
+              onChange={handleFinancialFilterChange}
+            />
+          </label>
+          <label className="filter-field">
+            <span>Hasta</span>
+            <input
+              className="input-control"
+              type="date"
+              name="end_date"
+              value={financialFilters.end_date}
+              onChange={handleFinancialFilterChange}
+            />
+          </label>
+          <div className="financial-filter-actions">
+            <button className="btn btn-primary" type="submit" disabled={loadingProfitReport}>
+              Aplicar filtros
+            </button>
+            <button className="btn btn-secondary" type="button" onClick={handleClearFinancialFilters} disabled={loadingProfitReport}>
+              Limpiar filtros
+            </button>
+          </div>
+        </form>
 
         <div className="profit-summary-grid">
           {executiveFinancialCards.map((card) => (
