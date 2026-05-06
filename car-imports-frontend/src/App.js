@@ -187,6 +187,7 @@ function App() {
         if (selectedVehicle) {
           loadCosts(selectedVehicle.id);
         }
+        loadProfitReport();
         resetCostForm();
       })
       .catch((err) => {
@@ -222,6 +223,7 @@ function App() {
         if (selectedVehicle) {
           loadCosts(selectedVehicle.id);
         }
+        loadProfitReport();
 
         if (editingCostId === costId) {
           resetCostForm();
@@ -297,6 +299,7 @@ function App() {
       .then(() => {
         loadSales(selectedSalesVehicle.id);
         loadVehicles();
+        loadProfitReport();
         resetSaleForm();
       })
       .catch((err) => {
@@ -329,6 +332,7 @@ function App() {
           loadSales(selectedSalesVehicle.id);
           loadVehicles();
         }
+        loadProfitReport();
         if (editingSaleId === saleId) resetSaleForm();
       })
       .catch((err) => console.error(err));
@@ -698,67 +702,6 @@ function App() {
           </div>
         </div>
       </section>
-    <section className="panel profit-panel">
-        <div className="panel-title-row">
-          <h2>Ganancia por vehículo</h2>
-          <button className="btn btn-secondary" type="button" onClick={loadProfitReport} disabled={loadingProfitReport}>
-            {loadingProfitReport ? "Actualizando..." : "Actualizar reporte"}
-          </button>
-        </div>
-
-        <div className="profit-summary-grid">
-          <article className="metric-card metric-primary">
-            <p className="metric-title">Total ventas</p>
-            <p className="metric-value">{formatMoney(profitTotals.totalVentas)}</p>
-          </article>
-          <article className="metric-card metric-neutral">
-            <p className="metric-title">Total costos</p>
-            <p className="metric-value">{formatMoney(profitTotals.totalCostos)}</p>
-          </article>
-          <article className={`metric-card ${profitTotals.gananciaTotal >= 0 ? "profit-positive" : "profit-negative"}`}>
-            <p className="metric-title">Ganancia total</p>
-            <p className="metric-value">{formatMoney(profitTotals.gananciaTotal)}</p>
-          </article>
-          <article className={`metric-card ${margenPromedio >= 0 ? "profit-positive" : "profit-negative"}`}>
-            <p className="metric-title">Margen promedio</p>
-            <p className="metric-value">{margenPromedio.toFixed(2)}%</p>
-          </article>
-        </div>
-
-        <div className="table-wrapper">
-          <table className="data-table">
-            <thead>
-              <tr>
-                <th>VIN</th><th>Marca</th><th>Modelo</th><th>Año</th><th>Estado</th>
-                <th className="numeric">Total costos</th><th className="numeric">Total venta</th>
-                <th className="numeric">Ganancia real</th><th className="numeric">Margen</th>
-              </tr>
-            </thead>
-            <tbody>
-              {!loadingProfitReport && profitRows.length === 0 ? (
-                <tr>
-                  <td colSpan={9} className="report-empty-cell">No hay datos de ganancias para mostrar.</td>
-                </tr>
-              ) : (
-                profitRows.map((row) => (
-                  <tr key={row.vehicle_id}>
-                    <td>{row.vin || "—"}</td>
-                    <td>{row.marca || "—"}</td>
-                    <td>{row.modelo || "—"}</td>
-                    <td>{row.anio || "—"}</td>
-                    <td><span className="status-pill">{estadoLabel(row.estado || "inventario")}</span></td>
-                    <td className="numeric">{formatMoney(row.total_costos)}</td>
-                    <td className="numeric">{formatMoney(row.total_venta)}</td>
-                    <td className={`numeric profit-value ${Number(row.ganancia_real || 0) >= 0 ? "profit-positive-text" : "profit-negative-text"}`}>{formatMoney(row.ganancia_real)}</td>
-                    <td className={`numeric profit-value ${Number(row.margen_porcentaje || 0) >= 0 ? "profit-positive-text" : "profit-negative-text"}`}>{Number(row.margen_porcentaje || 0).toFixed(2)}%</td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-      </section>
-
       <section className="panel">
         <h2>{editingId ? "Editar vehículo" : "Registrar vehículo"}</h2>
         <form onSubmit={handleSubmit} className="form-grid">
@@ -1133,6 +1076,68 @@ function App() {
             ))}
         </section>
       )}
+
+    <section className="panel profit-panel">
+        <div className="panel-title-row">
+          <h2>Ganancia por vehículo</h2>
+          <button className="btn btn-secondary" type="button" onClick={loadProfitReport} disabled={loadingProfitReport}>
+            {loadingProfitReport ? "Actualizando..." : "Actualizar reporte"}
+          </button>
+        </div>
+
+        <div className="profit-summary-grid">
+          <article className="metric-card metric-primary">
+            <p className="metric-title">Total ventas</p>
+            <p className="metric-value">{formatMoney(profitTotals.totalVentas)}</p>
+          </article>
+          <article className="metric-card metric-neutral">
+            <p className="metric-title">Total costos</p>
+            <p className="metric-value">{formatMoney(profitTotals.totalCostos)}</p>
+          </article>
+          <article className={`metric-card ${profitTotals.gananciaTotal >= 0 ? "profit-positive" : "profit-negative"}`}>
+            <p className="metric-title">Ganancia total</p>
+            <p className="metric-value">{formatMoney(profitTotals.gananciaTotal)}</p>
+          </article>
+          <article className={`metric-card ${margenPromedio >= 0 ? "profit-positive" : "profit-negative"}`}>
+            <p className="metric-title">Margen promedio</p>
+            <p className="metric-value">{margenPromedio.toFixed(2)}%</p>
+          </article>
+        </div>
+
+        <div className="table-wrapper">
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>VIN</th><th>Marca</th><th>Modelo</th><th>Año</th><th>Estado</th>
+                <th className="numeric">Total costos</th><th className="numeric">Total venta</th>
+                <th className="numeric">Ganancia real</th><th className="numeric">Margen</th>
+              </tr>
+            </thead>
+            <tbody>
+              {!loadingProfitReport && profitRows.length === 0 ? (
+                <tr>
+                  <td colSpan={9} className="report-empty-cell">No hay datos de ganancias para mostrar.</td>
+                </tr>
+              ) : (
+                profitRows.map((row) => (
+                  <tr key={row.vehicle_id}>
+                    <td>{row.vin || "—"}</td>
+                    <td>{row.marca || "—"}</td>
+                    <td>{row.modelo || "—"}</td>
+                    <td>{row.anio || "—"}</td>
+                    <td><span className="status-pill">{estadoLabel(row.estado || "inventario")}</span></td>
+                    <td className="numeric">{formatMoney(row.total_costos)}</td>
+                    <td className="numeric">{formatMoney(row.total_venta)}</td>
+                    <td className={`numeric profit-value ${Number(row.ganancia_real || 0) >= 0 ? "profit-positive-text" : "profit-negative-text"}`}>{formatMoney(row.ganancia_real)}</td>
+                    <td className={`numeric profit-value ${Number(row.margen_porcentaje || 0) >= 0 ? "profit-positive-text" : "profit-negative-text"}`}>{Number(row.margen_porcentaje || 0).toFixed(2)}%</td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
     </div>
   );
 }
