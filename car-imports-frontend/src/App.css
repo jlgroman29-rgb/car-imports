@@ -92,6 +92,8 @@ h1 {
 .metric-dark { border-left: 4px solid #64748b; }
 .metric-primary { border-left: 4px solid #2563eb; }
 .metric-neutral { border-left: 4px solid #334155; }
+.metric-positive { border-left: 4px solid #16a34a; }
+.metric-negative { border-left: 4px solid #dc2626; }
 
 .chart-panel,
 .panel {
@@ -254,6 +256,12 @@ h1 {
   color: var(--muted);
 }
 
+.panel-subtitle {
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 14px;
+}
+
 .cost-form-actions {
   display: flex;
   gap: 8px;
@@ -342,6 +350,14 @@ h1 {
   display: grid;
   gap: 12px;
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+}
+
+.executive-metric-card {
+  min-height: 112px;
+}
+
+.profit-detail-heading {
+  margin-top: 22px;
 }
 
 .profit-value {
