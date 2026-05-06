@@ -379,3 +379,30 @@ h1 {
 .profit-negative-text {
   color: #b91c1c;
 }
+
+.financial-filters {
+  margin-top: 16px;
+  padding: 14px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+  align-items: end;
+  background: #f8fafc;
+  border: 1px solid #dbeafe;
+  border-radius: 14px;
+}
+
+.filter-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.financial-filter-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
