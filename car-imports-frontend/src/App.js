@@ -636,12 +636,44 @@ function App() {
       totalVentas: acc.totalVentas + Number(row.total_venta || 0),
       totalCostos: acc.totalCostos + Number(row.total_costos || 0),
       gananciaTotal: acc.gananciaTotal + Number(row.ganancia_real || 0),
-      sumaMargen: acc.sumaMargen + Number(row.margen_porcentaje || 0)
+      sumaMargen: acc.sumaMargen + Number(row.margen_porcentaje || 0),
+      vendidos: acc.vendidos + (Number(row.total_venta || 0) > 0 ? 1 : 0),
+      disponibles: acc.disponibles + (row.estado === "disponible" ? 1 : 0),
+      conPerdida: acc.conPerdida + (Number(row.ganancia_real || 0) < 0 ? 1 : 0),
+      conGanancia: acc.conGanancia + (Number(row.ganancia_real || 0) > 0 ? 1 : 0)
     }),
-    { totalVentas: 0, totalCostos: 0, gananciaTotal: 0, sumaMargen: 0 }
+    {
+      totalVentas: 0,
+      totalCostos: 0,
+      gananciaTotal: 0,
+      sumaMargen: 0,
+      vendidos: 0,
+      disponibles: 0,
+      conPerdida: 0,
+      conGanancia: 0
+    }
   );
 
   const margenPromedio = profitRows.length > 0 ? profitTotals.sumaMargen / profitRows.length : 0;
+
+  const executiveFinancialCards = [
+    { title: "Total ventas", value: formatMoney(profitTotals.totalVentas), variant: "primary" },
+    { title: "Total costos", value: formatMoney(profitTotals.totalCostos), variant: "neutral" },
+    {
+      title: "Ganancia total",
+      value: formatMoney(profitTotals.gananciaTotal),
+      variant: profitTotals.gananciaTotal >= 0 ? "positive" : "negative"
+    },
+    {
+      title: "Margen promedio",
+      value: `${margenPromedio.toFixed(2)}%`,
+      variant: margenPromedio >= 0 ? "positive" : "negative"
+    },
+    { title: "Vehículos vendidos", value: profitTotals.vendidos, variant: "dark" },
+    { title: "Vehículos disponibles", value: profitTotals.disponibles, variant: "info" },
+    { title: "Vehículos con pérdida", value: profitTotals.conPerdida, variant: "negative" },
+    { title: "Vehículos con ganancia", value: profitTotals.conGanancia, variant: "positive" }
+  ];
 
   const metricCards = [
     { title: "Total vehículos", value: vehicles.length, icon: "🚗", variant: "neutral" },
@@ -1079,29 +1111,26 @@ function App() {
 
     <section className="panel profit-panel">
         <div className="panel-title-row">
-          <h2>Ganancia por vehículo</h2>
+          <div>
+            <h2>Dashboard financiero ejecutivo</h2>
+            <p className="panel-subtitle">Resumen consolidado desde el reporte de ganancias.</p>
+          </div>
           <button className="btn btn-secondary" type="button" onClick={loadProfitReport} disabled={loadingProfitReport}>
             {loadingProfitReport ? "Actualizando..." : "Actualizar reporte"}
           </button>
         </div>
 
         <div className="profit-summary-grid">
-          <article className="metric-card metric-primary">
-            <p className="metric-title">Total ventas</p>
-            <p className="metric-value">{formatMoney(profitTotals.totalVentas)}</p>
-          </article>
-          <article className="metric-card metric-neutral">
-            <p className="metric-title">Total costos</p>
-            <p className="metric-value">{formatMoney(profitTotals.totalCostos)}</p>
-          </article>
-          <article className={`metric-card ${profitTotals.gananciaTotal >= 0 ? "profit-positive" : "profit-negative"}`}>
-            <p className="metric-title">Ganancia total</p>
-            <p className="metric-value">{formatMoney(profitTotals.gananciaTotal)}</p>
-          </article>
-          <article className={`metric-card ${margenPromedio >= 0 ? "profit-positive" : "profit-negative"}`}>
-            <p className="metric-title">Margen promedio</p>
-            <p className="metric-value">{margenPromedio.toFixed(2)}%</p>
-          </article>
+          {executiveFinancialCards.map((card) => (
+            <article key={card.title} className={`metric-card executive-metric-card metric-${card.variant}`}>
+              <p className="metric-title">{card.title}</p>
+              <p className="metric-value">{card.value}</p>
+            </article>
+          ))}
+        </div>
+
+        <div className="profit-detail-heading">
+          <h3>Ganancia por vehículo</h3>
         </div>
 
         <div className="table-wrapper">
