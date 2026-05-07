@@ -798,8 +798,8 @@ def get_profit_by_vehicle(vehicle_id):
         - vehicle_id (int, requerido): ID del vehículo.
 
     Fórmulas:
-        - total_venta = precio_venta * COALESCE(tasa_cambio, 1)
-        - total_costos = SUM(monto * COALESCE(tasa_cambio, 1))
+        - total_venta = precio_venta / COALESCE(tasa_cambio, 1)
+        - total_costos = SUM(monto / COALESCE(tasa_cambio, 1))
         - ganancia_real = total_venta - total_costos
         - margen_porcentaje = (ganancia_real / total_venta) * 100 si total_venta > 0, de lo contrario 0
 
@@ -838,14 +838,14 @@ def get_profit_by_vehicle(vehicle_id):
             LEFT JOIN (
                 SELECT
                     vehicle_id,
-                    SUM(monto * COALESCE(tasa_cambio, 1)) AS total_costos
+                    SUM(monto / COALESCE(tasa_cambio, 1)) AS total_costos
                 FROM costs
                 GROUP BY vehicle_id
             ) costs_agg ON costs_agg.vehicle_id = v.id
             LEFT JOIN (
                 SELECT
                     vehicle_id,
-                    MAX(precio_venta * COALESCE(tasa_cambio, 1)) AS total_venta
+                    MAX(precio_venta / COALESCE(tasa_cambio, 1)) AS total_venta
                 FROM sales
                 WHERE 1=1{sales_filter_clause}
                 GROUP BY vehicle_id
@@ -914,14 +914,14 @@ def get_profit_report():
             LEFT JOIN (
                 SELECT
                     vehicle_id,
-                    SUM(monto * COALESCE(tasa_cambio, 1)) AS total_costos
+                    SUM(monto / COALESCE(tasa_cambio, 1)) AS total_costos
                 FROM costs
                 GROUP BY vehicle_id
             ) costs_agg ON costs_agg.vehicle_id = v.id
             LEFT JOIN (
                 SELECT
                     vehicle_id,
-                    MAX(precio_venta * COALESCE(tasa_cambio, 1)) AS total_venta
+                    MAX(precio_venta / COALESCE(tasa_cambio, 1)) AS total_venta
                 FROM sales
                 WHERE 1=1{sales_filter_clause}
                 GROUP BY vehicle_id
@@ -1325,7 +1325,7 @@ def total_costs(vehicle_id):
         cur = conn.cursor()
 
         cur.execute("""
-            SELECT COALESCE(SUM(monto * COALESCE(tasa_cambio, 1)), 0)
+            SELECT COALESCE(SUM(monto / COALESCE(tasa_cambio, 1)), 0)
             FROM costs
             WHERE vehicle_id = %s
         """ + date_filter_clause, (vehicle_id, *date_filter_params))
@@ -1360,7 +1360,7 @@ def vehicles_real_profit():
         WITH costs_by_vehicle AS (
             SELECT
                 vehicle_id,
-                COALESCE(SUM(monto * COALESCE(tasa_cambio, 1)), 0) AS total_costos
+                COALESCE(SUM(monto / COALESCE(tasa_cambio, 1)), 0) AS total_costos
             FROM costs
             GROUP BY vehicle_id
         ),

@@ -958,7 +958,7 @@ function App() {
                     <td>{estadoLabel(c.tipo)}</td>
                     <td className="numeric">{formatMoney(c.monto)}</td>
                     <td>{c.moneda}</td>
-                    <td>{c.fecha}</td>
+                    <td>{formatDate(c.fecha)}</td>
                     <td>{c.descripcion}</td>
                     <td>
                       <div className="table-actions">
@@ -1125,7 +1125,7 @@ function App() {
                             <td className="numeric">{formatMoney(cost.monto)}</td>
                             <td>{cost.moneda || "—"}</td>
                             <td className="numeric">{cost.tasa_cambio ?? "—"}</td>
-                            <td>{formatDate(cost.fecha)}</td>
+                            <td>{formatDate(cost.fecha || cost.fecha)}</td>
                             <td>{cost.descripcion || "—"}</td>
                           </tr>
                         ))
