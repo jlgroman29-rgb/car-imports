@@ -433,13 +433,12 @@ function App() {
     cantidad: vehicles.filter((v) => v.estado === estado).length
   }));
 
-  const formatMoney = (value) => {
-    return new Intl.NumberFormat("es-DO", {
+  const formatMoney = (value, currency = "USD") => {
+    return new Intl.NumberFormat("en-US", {
       style: "currency",
-      currency: "USD",
-      minimumFractionDigits: 0
+      currency
     }).format(value || 0);
-  };
+};
 
   const formatMoneyByCurrency = (value, currency = "USD") => {
     try {
@@ -1122,7 +1121,7 @@ function App() {
                         row.costs.map((cost) => (
                           <tr key={cost.id}>
                             <td>{estadoLabel(cost.tipo)}</td>
-                            <td className="numeric">{formatMoney(cost.monto)}</td>
+                            <td className="numeric">{formatMoney(cost.monto, cost.moneda)}</td>
                             <td>{cost.moneda || "—"}</td>
                             <td className="numeric">{cost.tasa_cambio ?? "—"}</td>
                             <td>{formatDate(cost.fecha || cost.fecha)}</td>
