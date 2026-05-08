@@ -433,14 +433,27 @@ function App() {
     cantidad: vehicles.filter((v) => v.estado === estado).length
   }));
 
-  const formatMoney = (value, currency = "USD") => {
-    const locale = currency === "DOP" ? "es-DO" : "en-US";
+const formatMoney = (value, currency = "USD") => {
+  const cleanCurrency = String(currency || "USD").trim().toUpperCase();
 
-    return new Intl.NumberFormat(locale, {
-      style: "currency",
-      currency,
-      minimumFractionDigits: 2
-    }).format(value || 0);
+  if (cleanCurrency === "DOP") {
+    return `RD$${Number(value || 0).toLocaleString("en-US", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2
+    })}`;
+  }
+
+  if (cleanCurrency === "USD") {
+    return `US$${Number(value || 0).toLocaleString("en-US", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2
+    })}`;
+  }
+
+  return `${cleanCurrency} ${Number(value || 0).toLocaleString("en-US", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  })}`;
 };
 
   const formatMoneyByCurrency = (value, currency = "USD") => {
@@ -958,7 +971,7 @@ function App() {
                 {costs.map((c) => (
                   <tr key={c.id}>
                     <td>{estadoLabel(c.tipo)}</td>
-                    <td className="numeric">{formatMoney(c.monto)}</td>
+                    <td className="numeric">{formatMoney(c.monto,c.moneda)}</td>
                     <td>{c.moneda}</td>
                     <td>{formatDate(c.fecha)}</td>
                     <td>{c.descripcion}</td>
