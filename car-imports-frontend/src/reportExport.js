@@ -399,6 +399,17 @@ const normalizeFinancialRows = (profitRows, estadoLabel) =>
     margen_porcentaje: sanitizeNumber(row.margen_porcentaje)
   }));
 
+const getFinancialSummaryRows = (profitTotals, margenPromedio) => [
+  ["Total ventas", sanitizeNumber(profitTotals.totalVentas)],
+  ["Total costos", sanitizeNumber(profitTotals.totalCostos)],
+  ["Ganancia total", sanitizeNumber(profitTotals.gananciaTotal)],
+  ["Margen promedio", `${sanitizeNumber(margenPromedio).toFixed(2)}%`],
+  ["Vehiculos vendidos", sanitizeNumber(profitTotals.vendidos)],
+  ["Vehiculos disponibles", sanitizeNumber(profitTotals.disponibles)],
+  ["Vehiculos con perdida", sanitizeNumber(profitTotals.conPerdida)],
+  ["Vehiculos con ganancia", sanitizeNumber(profitTotals.conGanancia)]
+];
+
 const buildFinancialSheetXml = ({ profitRows, profitTotals, margenPromedio, filters, estadoLabel }) => {
   const title = "Dashboard financiero ejecutivo";
   const generatedAt = `Generado: ${new Date().toLocaleString("es-DO")}`;
@@ -407,16 +418,7 @@ const buildFinancialSheetXml = ({ profitRows, profitTotals, margenPromedio, filt
   const tableStartRow = 17;
   const lastRow = Math.max(tableStartRow + rows.length, tableStartRow + 1);
 
-  const summaryRows = [
-    ["Total ventas", sanitizeNumber(profitTotals.totalVentas)],
-    ["Total costos", sanitizeNumber(profitTotals.totalCostos)],
-    ["Ganancia total", sanitizeNumber(profitTotals.gananciaTotal)],
-    ["Margen promedio", `${sanitizeNumber(margenPromedio).toFixed(2)}%`],
-    ["Vehiculos vendidos", sanitizeNumber(profitTotals.vendidos)],
-    ["Vehiculos disponibles", sanitizeNumber(profitTotals.disponibles)],
-    ["Vehiculos con perdida", sanitizeNumber(profitTotals.conPerdida)],
-    ["Vehiculos con ganancia", sanitizeNumber(profitTotals.conGanancia)]
-  ];
+  const summaryRows = getFinancialSummaryRows(profitTotals, margenPromedio);
 
   const rowXml = [];
   rowXml.push(`<row r="1"><c r="A1" t="inlineStr" s="1"><is><t>${escapeXml(title)}</t></is></c></row>`);
@@ -593,16 +595,10 @@ const buildPdfHtml = ({ reportRows, estadoLabel }) => {
 const buildFinancialPdfHtml = ({ profitRows, profitTotals, margenPromedio, filters, estadoLabel }) => {
   const generatedAt = new Date().toLocaleString("es-DO");
   const rows = normalizeFinancialRows(profitRows, estadoLabel);
-  const metrics = [
-    ["Total ventas", formatAmount(profitTotals.totalVentas)],
-    ["Total costos", formatAmount(profitTotals.totalCostos)],
-    ["Ganancia total", formatAmount(profitTotals.gananciaTotal)],
-    ["Margen promedio", `${sanitizeNumber(margenPromedio).toFixed(2)}%`],
-    ["Vehiculos vendidos", profitTotals.vendidos],
-    ["Vehiculos disponibles", profitTotals.disponibles],
-    ["Vehiculos con perdida", profitTotals.conPerdida],
-    ["Vehiculos con ganancia", profitTotals.conGanancia]
-  ];
+  const metrics = getFinancialSummaryRows(profitTotals, margenPromedio).map(([label, value], index) => [
+    label,
+    typeof value === "number" && index < 3 ? formatAmount(value) : value
+  ]);
 
   const metricCards = metrics
     .map(

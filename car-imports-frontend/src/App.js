@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, Cell, ResponsiveContainer } from "recharts";
 import "./App.css";
 import { exportCostReport, exportFinancialReport, EXPORT_FORMATS } from "./reportExport";
@@ -38,6 +38,7 @@ const coloresEstado = {
 
 const estadoLabel = (estado) => estado.replaceAll("_", " ");
 function App() {
+  const initialDataLoadedRef = useRef(false);
   const [vehicles, setVehicles] = useState([]);
   const [form, setForm] = useState({
     vin: "",
@@ -348,9 +349,14 @@ function App() {
   };
 
   useEffect(() => {
+    if (initialDataLoadedRef.current) {
+      return;
+    }
+
+    initialDataLoadedRef.current = true;
     loadVehicles();
     loadProfitReport();
-  }, []);
+  });
 
   const deleteVehicle = (id) => {
     if (!window.confirm("¿Seguro que deseas eliminar este vehículo?")) return;
@@ -460,19 +466,6 @@ const formatMoney = (value, currency = "USD") => {
     maximumFractionDigits: 2
   })}`;
 };
-
-  const formatMoneyByCurrency = (value, currency = "USD") => {
-    try {
-      return new Intl.NumberFormat("es-DO", {
-        style: "currency",
-        currency,
-        minimumFractionDigits: 2
-      }).format(value || 0);
-    } catch (_error) {
-      return `${currency} ${Number(value || 0).toFixed(2)}`;
-    }
-  };
-
 
   const toDateInputValue = (value) => {
     if (!value) return "";
