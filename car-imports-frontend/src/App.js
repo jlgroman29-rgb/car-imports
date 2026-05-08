@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, Cell, ResponsiveContainer } from "recharts";
 import "./App.css";
-import { exportCostReport, EXPORT_FORMATS } from "./reportExport";
+import { exportCostReport, exportFinancialReport, EXPORT_FORMATS } from "./reportExport";
 import { buildReceiptHtml } from "./receiptTemplate";
 
 const ESTADOS = [
@@ -103,10 +103,15 @@ function App() {
   const [loadingReport, setLoadingReport] = useState(false);
   const [reportVisible, setReportVisible] = useState(false);
   const [exportingReport, setExportingReport] = useState(false);
+  const [exportingFinancialReport, setExportingFinancialReport] = useState(false);
   const [salesByVehicleId, setSalesByVehicleId] = useState({});
   const [profitRows, setProfitRows] = useState([]);
   const [loadingProfitReport, setLoadingProfitReport] = useState(false);
   const [financialFilters, setFinancialFilters] = useState({
+    start_date: "",
+    end_date: ""
+  });
+  const [appliedFinancialFilters, setAppliedFinancialFilters] = useState({
     start_date: "",
     end_date: ""
   });
@@ -534,6 +539,7 @@ const formatMoney = (value, currency = "USD") => {
       }
 
       setProfitRows(payload.data || []);
+      setAppliedFinancialFilters({ ...filters });
     } catch (error) {
       console.error("Error cargando reporte de ganancias:", error);
       alert("No se pudo cargar el reporte de ganancias. Intenta nuevamente.");
@@ -631,6 +637,39 @@ const formatMoney = (value, currency = "USD") => {
       alert(error.message || "No se pudo exportar el reporte.");
     } finally {
       setExportingReport(false);
+    }
+  };
+
+  const handleExportFinancialReport = (format) => {
+    if (loadingProfitReport) {
+      return;
+    }
+
+    const printWindow = format === EXPORT_FORMATS.PDF ? window.open("", "_blank") : null;
+    if (format === EXPORT_FORMATS.PDF && !printWindow) {
+      alert("No se pudo abrir la ventana de impresiÃ³n. Habilita los pop-ups e intÃ©ntalo de nuevo.");
+      return;
+    }
+
+    setExportingFinancialReport(true);
+    try {
+      exportFinancialReport({
+        format,
+        profitRows,
+        profitTotals,
+        margenPromedio,
+        filters: appliedFinancialFilters,
+        estadoLabel,
+        printWindow
+      });
+    } catch (error) {
+      if (printWindow && !printWindow.closed) {
+        printWindow.close();
+      }
+      console.error("Error exportando dashboard financiero:", error);
+      alert(error.message || "No se pudo exportar el dashboard financiero.");
+    } finally {
+      setExportingFinancialReport(false);
     }
   };
 
@@ -1159,9 +1198,27 @@ const formatMoney = (value, currency = "USD") => {
             <h2>Dashboard financiero ejecutivo</h2>
             <p className="panel-subtitle">Resumen consolidado desde el reporte de ganancias.</p>
           </div>
-          <button className="btn btn-secondary" type="button" onClick={() => loadProfitReport()} disabled={loadingProfitReport}>
-            {loadingProfitReport ? "Actualizando..." : "Actualizar reporte"}
-          </button>
+          <div className="report-actions">
+            <button className="btn btn-secondary" type="button" onClick={() => loadProfitReport()} disabled={loadingProfitReport}>
+              {loadingProfitReport ? "Actualizando..." : "Actualizar reporte"}
+            </button>
+            <button
+              className="btn btn-primary"
+              type="button"
+              onClick={() => handleExportFinancialReport(EXPORT_FORMATS.XLSX)}
+              disabled={loadingProfitReport || exportingFinancialReport}
+            >
+              {exportingFinancialReport ? "Exportando..." : "Exportar Excel"}
+            </button>
+            <button
+              className="btn btn-secondary"
+              type="button"
+              onClick={() => handleExportFinancialReport(EXPORT_FORMATS.PDF)}
+              disabled={loadingProfitReport || exportingFinancialReport}
+            >
+              {exportingFinancialReport ? "Exportando..." : "Exportar PDF"}
+            </button>
+          </div>
         </div>
 
         <form className="financial-filters" onSubmit={handleApplyFinancialFilters}>

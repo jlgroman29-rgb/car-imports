@@ -18,6 +18,18 @@ const EXCEL_HEADERS = [
   "Total costos vehículo"
 ];
 
+const FINANCIAL_EXCEL_HEADERS = [
+  "VIN",
+  "Marca",
+  "Modelo",
+  "Ano",
+  "Estado",
+  "Total costos",
+  "Total venta",
+  "Ganancia real",
+  "Margen"
+];
+
 const escapeXml = (value) =>
   String(value ?? "")
     .replaceAll("&", "&amp;")
@@ -226,10 +238,10 @@ const relsXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
   <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>
 </Relationships>`;
 
-const workbookXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+const buildWorkbookXml = (sheetName) => `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
   <sheets>
-    <sheet name="Reporte costos" sheetId="1" r:id="rId1"/>
+    <sheet name="${escapeXml(sheetName)}" sheetId="1" r:id="rId1"/>
   </sheets>
 </workbook>`;
 
@@ -350,7 +362,7 @@ const exportReportToXlsx = ({ reportRows, estadoLabel }) => {
   const files = [
     { name: "[Content_Types].xml", content: contentTypesXml },
     { name: "_rels/.rels", content: relsXml },
-    { name: "xl/workbook.xml", content: workbookXml },
+    { name: "xl/workbook.xml", content: buildWorkbookXml("Reporte costos") },
     { name: "xl/_rels/workbook.xml.rels", content: workbookRelsXml },
     { name: "xl/styles.xml", content: stylesXml },
     { name: "xl/worksheets/sheet1.xml", content: buildSheetXml(flatRows) }
@@ -362,6 +374,132 @@ const exportReportToXlsx = ({ reportRows, estadoLabel }) => {
   });
   const dateSuffix = new Date().toISOString().slice(0, 10);
   downloadBlob(blob, `reporte-costos-vehiculos-${dateSuffix}.xlsx`);
+};
+
+const getFinancialFilterLabel = (filters = {}) => {
+  const start = filters.start_date || "";
+  const end = filters.end_date || "";
+
+  if (start && end) return `Periodo: ${start} al ${end}`;
+  if (start) return `Periodo: desde ${start}`;
+  if (end) return `Periodo: hasta ${end}`;
+  return "Periodo: todos";
+};
+
+const normalizeFinancialRows = (profitRows, estadoLabel) =>
+  (profitRows || []).map((row) => ({
+    vin: row.vin || "-",
+    marca: row.marca || "-",
+    modelo: row.modelo || "-",
+    anio: row.anio || "-",
+    estado: estadoLabel(row.estado || "inventario") || "-",
+    total_costos: sanitizeNumber(row.total_costos),
+    total_venta: sanitizeNumber(row.total_venta),
+    ganancia_real: sanitizeNumber(row.ganancia_real),
+    margen_porcentaje: sanitizeNumber(row.margen_porcentaje)
+  }));
+
+const buildFinancialSheetXml = ({ profitRows, profitTotals, margenPromedio, filters, estadoLabel }) => {
+  const title = "Dashboard financiero ejecutivo";
+  const generatedAt = `Generado: ${new Date().toLocaleString("es-DO")}`;
+  const filterLabel = getFinancialFilterLabel(filters);
+  const rows = normalizeFinancialRows(profitRows, estadoLabel);
+  const tableStartRow = 17;
+  const lastRow = Math.max(tableStartRow + rows.length, tableStartRow + 1);
+
+  const summaryRows = [
+    ["Total ventas", sanitizeNumber(profitTotals.totalVentas)],
+    ["Total costos", sanitizeNumber(profitTotals.totalCostos)],
+    ["Ganancia total", sanitizeNumber(profitTotals.gananciaTotal)],
+    ["Margen promedio", `${sanitizeNumber(margenPromedio).toFixed(2)}%`],
+    ["Vehiculos vendidos", sanitizeNumber(profitTotals.vendidos)],
+    ["Vehiculos disponibles", sanitizeNumber(profitTotals.disponibles)],
+    ["Vehiculos con perdida", sanitizeNumber(profitTotals.conPerdida)],
+    ["Vehiculos con ganancia", sanitizeNumber(profitTotals.conGanancia)]
+  ];
+
+  const rowXml = [];
+  rowXml.push(`<row r="1"><c r="A1" t="inlineStr" s="1"><is><t>${escapeXml(title)}</t></is></c></row>`);
+  rowXml.push(`<row r="2"><c r="A2" t="inlineStr" s="3"><is><t>${escapeXml(generatedAt)}</t></is></c></row>`);
+  rowXml.push(`<row r="3"><c r="A3" t="inlineStr" s="3"><is><t>${escapeXml(filterLabel)}</t></is></c></row>`);
+  rowXml.push('<row r="5"><c r="A5" t="inlineStr" s="2"><is><t>Indicador</t></is></c><c r="B5" t="inlineStr" s="2"><is><t>Valor</t></is></c></row>');
+
+  summaryRows.forEach(([label, value], index) => {
+    const excelRow = index + 6;
+    const valueCell = typeof value === "number" ? numberCell(value, 3) : textCell(value);
+    rowXml.push(`<row r="${excelRow}">${textCell(label)}${valueCell}</row>`);
+  });
+
+  const headersRow = FINANCIAL_EXCEL_HEADERS.map(
+    (header, idx) => `<c r="${colLetter(idx + 1)}${tableStartRow}" t="inlineStr" s="2"><is><t>${escapeXml(header)}</t></is></c>`
+  ).join("");
+  rowXml.push(`<row r="${tableStartRow}">${headersRow}</row>`);
+
+  if (!rows.length) {
+    rowXml.push(`<row r="${tableStartRow + 1}"><c r="A${tableStartRow + 1}" t="inlineStr" s="0"><is><t>No hay datos de ganancias para mostrar.</t></is></c></row>`);
+  } else {
+    rows.forEach((row, rowIndex) => {
+      const excelRow = tableStartRow + rowIndex + 1;
+      const cells = [
+        textCell(row.vin),
+        textCell(row.marca),
+        textCell(row.modelo),
+        textCell(row.anio),
+        textCell(row.estado),
+        numberCell(row.total_costos, 3),
+        numberCell(row.total_venta, 3),
+        numberCell(row.ganancia_real, 3),
+        textCell(`${row.margen_porcentaje.toFixed(2)}%`)
+      ];
+
+      rowXml.push(`<row r="${excelRow}">${cells.join("")}</row>`);
+    });
+  }
+
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+  <dimension ref="A1:I${lastRow}"/>
+  <sheetViews>
+    <sheetView workbookViewId="0"><pane ySplit="${tableStartRow}" topLeftCell="A${tableStartRow + 1}" activePane="bottomLeft" state="frozen"/></sheetView>
+  </sheetViews>
+  <sheetFormatPr defaultRowHeight="16"/>
+  <cols>
+    <col min="1" max="1" width="20" customWidth="1"/>
+    <col min="2" max="3" width="16" customWidth="1"/>
+    <col min="4" max="5" width="12" customWidth="1"/>
+    <col min="6" max="8" width="16" customWidth="1"/>
+    <col min="9" max="9" width="12" customWidth="1"/>
+  </cols>
+  <sheetData>
+    ${rowXml.join("\n    ")}
+  </sheetData>
+  <mergeCells count="3">
+    <mergeCell ref="A1:I1"/>
+    <mergeCell ref="A2:I2"/>
+    <mergeCell ref="A3:I3"/>
+  </mergeCells>
+</worksheet>`;
+};
+
+const exportFinancialReportToXlsx = ({ profitRows, profitTotals, margenPromedio, filters, estadoLabel }) => {
+  const files = [
+    { name: "[Content_Types].xml", content: contentTypesXml },
+    { name: "_rels/.rels", content: relsXml },
+    { name: "xl/workbook.xml", content: buildWorkbookXml("Financiero") },
+    { name: "xl/_rels/workbook.xml.rels", content: workbookRelsXml },
+    { name: "xl/styles.xml", content: stylesXml },
+    {
+      name: "xl/worksheets/sheet1.xml",
+      content: buildFinancialSheetXml({ profitRows, profitTotals, margenPromedio, filters, estadoLabel })
+    }
+  ];
+
+  const zipBytes = createZip(files);
+  const blob = new Blob([zipBytes], {
+    type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+  });
+  const dateSuffix = new Date().toISOString().slice(0, 10);
+  downloadBlob(blob, `dashboard-financiero-ejecutivo-${dateSuffix}.xlsx`);
 };
 
 const formatAmount = (value) =>
@@ -452,6 +590,98 @@ const buildPdfHtml = ({ reportRows, estadoLabel }) => {
 </html>`;
 };
 
+const buildFinancialPdfHtml = ({ profitRows, profitTotals, margenPromedio, filters, estadoLabel }) => {
+  const generatedAt = new Date().toLocaleString("es-DO");
+  const rows = normalizeFinancialRows(profitRows, estadoLabel);
+  const metrics = [
+    ["Total ventas", formatAmount(profitTotals.totalVentas)],
+    ["Total costos", formatAmount(profitTotals.totalCostos)],
+    ["Ganancia total", formatAmount(profitTotals.gananciaTotal)],
+    ["Margen promedio", `${sanitizeNumber(margenPromedio).toFixed(2)}%`],
+    ["Vehiculos vendidos", profitTotals.vendidos],
+    ["Vehiculos disponibles", profitTotals.disponibles],
+    ["Vehiculos con perdida", profitTotals.conPerdida],
+    ["Vehiculos con ganancia", profitTotals.conGanancia]
+  ];
+
+  const metricCards = metrics
+    .map(
+      ([label, value]) => `<article class="metric">
+        <p>${escapeXml(label)}</p>
+        <strong>${escapeXml(value)}</strong>
+      </article>`
+    )
+    .join("");
+
+  const tableRows = rows.length
+    ? rows
+        .map(
+          (row) => `<tr>
+          <td>${escapeXml(row.vin)}</td>
+          <td>${escapeXml(row.marca)}</td>
+          <td>${escapeXml(row.modelo)}</td>
+          <td>${escapeXml(row.anio)}</td>
+          <td>${escapeXml(row.estado)}</td>
+          <td class="num">${formatAmount(row.total_costos)}</td>
+          <td class="num">${formatAmount(row.total_venta)}</td>
+          <td class="num">${formatAmount(row.ganancia_real)}</td>
+          <td class="num">${row.margen_porcentaje.toFixed(2)}%</td>
+        </tr>`
+        )
+        .join("")
+    : '<tr><td colspan="9" class="empty">No hay datos de ganancias para mostrar.</td></tr>';
+
+  return `<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <title>Dashboard financiero ejecutivo</title>
+  <style>
+    body { font-family: Arial, sans-serif; color: #1f2937; margin: 24px; }
+    h1 { margin: 0 0 6px; color: #0f172a; }
+    .subtitle { color: #4b5563; margin: 0 0 18px; }
+    .metrics { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin: 18px 0 22px; }
+    .metric { border: 1px solid #dbeafe; border-left: 4px solid #2563eb; border-radius: 8px; padding: 10px; background: #f8fafc; }
+    .metric p { color: #64748b; font-size: 11px; font-weight: 700; margin: 0 0 6px; text-transform: uppercase; }
+    .metric strong { font-size: 16px; color: #0f172a; }
+    table { width: 100%; border-collapse: collapse; font-size: 11px; }
+    th, td { border: 1px solid #e5e7eb; padding: 6px 7px; text-align: left; }
+    th { background: #eff6ff; color: #334155; text-transform: uppercase; }
+    td.num { text-align: right; }
+    .empty { text-align: center; color: #6b7280; }
+    @media print {
+      body { margin: 10mm; }
+      .metrics { grid-template-columns: repeat(4, 1fr); }
+      table { page-break-inside: auto; }
+      tr { page-break-inside: avoid; page-break-after: auto; }
+    }
+  </style>
+</head>
+<body>
+  <h1>Dashboard financiero ejecutivo</h1>
+  <p class="subtitle">Generado: ${escapeXml(generatedAt)} | ${escapeXml(getFinancialFilterLabel(filters))}</p>
+  <section class="metrics">${metricCards}</section>
+  <h2>Ganancia por vehiculo</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>VIN</th>
+        <th>Marca</th>
+        <th>Modelo</th>
+        <th>Ano</th>
+        <th>Estado</th>
+        <th>Total costos</th>
+        <th>Total venta</th>
+        <th>Ganancia real</th>
+        <th>Margen</th>
+      </tr>
+    </thead>
+    <tbody>${tableRows}</tbody>
+  </table>
+</body>
+</html>`;
+};
+
 const exportReportToPdf = ({ reportRows, estadoLabel, printWindow }) => {
   if (!reportRows.length) {
     throw new Error("No hay datos para exportar.");
@@ -471,6 +701,21 @@ const exportReportToPdf = ({ reportRows, estadoLabel, printWindow }) => {
   printWindow.document.close();
 };
 
+const exportFinancialReportToPdf = ({ profitRows, profitTotals, margenPromedio, filters, estadoLabel, printWindow }) => {
+  if (!printWindow) {
+    throw new Error("No se pudo abrir la ventana de impresiÃ³n. Habilita los pop-ups e intÃ©ntalo de nuevo.");
+  }
+
+  printWindow.onload = () => {
+    printWindow.focus();
+    printWindow.print();
+  };
+
+  printWindow.document.open();
+  printWindow.document.write(buildFinancialPdfHtml({ profitRows, profitTotals, margenPromedio, filters, estadoLabel }));
+  printWindow.document.close();
+};
+
 export const exportCostReport = ({ format = EXPORT_FORMATS.XLSX, reportRows, estadoLabel, printWindow = null }) => {
   if (format === EXPORT_FORMATS.XLSX) {
     exportReportToXlsx({ reportRows, estadoLabel });
@@ -483,6 +728,28 @@ export const exportCostReport = ({ format = EXPORT_FORMATS.XLSX, reportRows, est
   }
 
   throw new Error("Formato de exportación no soportado.");
+};
+
+export const exportFinancialReport = ({
+  format = EXPORT_FORMATS.XLSX,
+  profitRows,
+  profitTotals,
+  margenPromedio,
+  filters,
+  estadoLabel,
+  printWindow = null
+}) => {
+  if (format === EXPORT_FORMATS.XLSX) {
+    exportFinancialReportToXlsx({ profitRows, profitTotals, margenPromedio, filters, estadoLabel });
+    return;
+  }
+
+  if (format === EXPORT_FORMATS.PDF) {
+    exportFinancialReportToPdf({ profitRows, profitTotals, margenPromedio, filters, estadoLabel, printWindow });
+    return;
+  }
+
+  throw new Error("Formato de exportaciÃ³n no soportado.");
 };
 
 export { EXPORT_FORMATS };
