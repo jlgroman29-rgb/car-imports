@@ -1,10 +1,26 @@
 from flask import Flask, request
 from datetime import datetime
+import base64
+import hashlib
+import hmac
+import json
+import os
 import psycopg2
+import time
+import click
 from flasgger import Swagger
 from flask_cors import CORS
+from werkzeug.security import check_password_hash, generate_password_hash
 
 app = Flask(__name__)
+app.config["AUTH_TOKEN_SECRET"] = (
+    os.environ.get("AUTH_TOKEN_SECRET")
+    or os.environ.get("SECRET_KEY")
+    or "dev-auth-secret-change-me"
+)
+app.config["AUTH_TOKEN_EXPIRES_SECONDS"] = int(
+    os.environ.get("AUTH_TOKEN_EXPIRES_SECONDS", "86400")
+)
 CORS(app)
 
 VALID_ESTADOS = [
@@ -36,6 +52,111 @@ def get_connection():
         password="postgres",
     )
 
+
+def ensure_users_table(conn):
+    cur = conn.cursor()
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS users (
+            id SERIAL PRIMARY KEY,
+            email TEXT UNIQUE NOT NULL,
+            name TEXT,
+            password_hash TEXT NOT NULL,
+            is_active BOOLEAN NOT NULL DEFAULT TRUE,
+            created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+    """)
+    conn.commit()
+    cur.close()
+
+
+def normalize_email(email):
+    return (email or "").strip().lower()
+
+
+def serialize_user(row):
+    return {
+        "id": row["id"],
+        "email": row["email"],
+        "name": row.get("name"),
+        "is_active": row["is_active"],
+        "created_at": row.get("created_at"),
+    }
+
+
+def base64url_encode(data):
+    return base64.urlsafe_b64encode(data).rstrip(b"=").decode("ascii")
+
+
+def base64url_decode(value):
+    padding = "=" * (-len(value) % 4)
+    return base64.urlsafe_b64decode((value + padding).encode("ascii"))
+
+
+def create_auth_token(user):
+    now = int(time.time())
+    expires_in = app.config["AUTH_TOKEN_EXPIRES_SECONDS"]
+    header = {"alg": "HS256", "typ": "JWT"}
+    payload = {
+        "sub": str(user["id"]),
+        "email": user["email"],
+        "name": user.get("name"),
+        "iat": now,
+        "exp": now + expires_in,
+    }
+
+    header_part = base64url_encode(json.dumps(header, separators=(",", ":")).encode("utf-8"))
+    payload_part = base64url_encode(json.dumps(payload, separators=(",", ":")).encode("utf-8"))
+    signing_input = f"{header_part}.{payload_part}".encode("ascii")
+    signature = hmac.new(
+        app.config["AUTH_TOKEN_SECRET"].encode("utf-8"),
+        signing_input,
+        hashlib.sha256,
+    ).digest()
+
+    return f"{header_part}.{payload_part}.{base64url_encode(signature)}", expires_in
+
+
+def decode_auth_token(token):
+    try:
+        header_part, payload_part, signature_part = token.split(".")
+    except ValueError:
+        return None, "Token invalido"
+
+    signing_input = f"{header_part}.{payload_part}".encode("ascii")
+    expected_signature = hmac.new(
+        app.config["AUTH_TOKEN_SECRET"].encode("utf-8"),
+        signing_input,
+        hashlib.sha256,
+    ).digest()
+
+    try:
+        provided_signature = base64url_decode(signature_part)
+    except Exception:
+        return None, "Token invalido"
+
+    if not hmac.compare_digest(expected_signature, provided_signature):
+        return None, "Token invalido"
+
+    try:
+        payload = json.loads(base64url_decode(payload_part).decode("utf-8"))
+    except Exception:
+        return None, "Token invalido"
+
+    if int(payload.get("exp", 0)) < int(time.time()):
+        return None, "Token expirado"
+
+    return payload, None
+
+
+def get_bearer_token():
+    auth_header = request.headers.get("Authorization", "")
+    parts = auth_header.split()
+
+    if len(parts) == 2 and parts[0].lower() == "bearer":
+        return parts[1]
+
+    return None
 
 
 def parse_date_filter(value, field_name):
@@ -209,6 +330,130 @@ def serialize_profit_row(row):
         "ganancia_real": ganancia_real,
         "margen_porcentaje": margen,
     }
+
+
+@app.route("/auth/login", methods=["POST"])
+def login():
+    data = request.get_json(silent=True) or {}
+    email = normalize_email(data.get("email"))
+    password = data.get("password") or ""
+
+    if not email or not password:
+        return {
+            "status": "error",
+            "message": "email y password son requeridos"
+        }, 400
+
+    try:
+        import psycopg2.extras
+
+        conn = get_connection()
+        ensure_users_table(conn)
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute("""
+            SELECT id, email, name, password_hash, is_active, created_at
+            FROM users
+            WHERE LOWER(email) = %s
+            LIMIT 1;
+        """, (email,))
+        user = cur.fetchone()
+
+        cur.close()
+        conn.close()
+
+        if not user or not user["is_active"] or not check_password_hash(user["password_hash"], password):
+            return {
+                "status": "error",
+                "message": "Credenciales invalidas"
+            }, 401
+
+        token, expires_in = create_auth_token(user)
+
+        return {
+            "status": "OK",
+            "token_type": "Bearer",
+            "access_token": token,
+            "expires_in": expires_in,
+            "user": serialize_user(user),
+        }
+
+    except Exception as e:
+        return {"error": str(e)}, 500
+
+
+@app.route("/auth/me", methods=["GET"])
+def auth_me():
+    token = get_bearer_token()
+    if not token:
+        return {
+            "status": "error",
+            "message": "Authorization Bearer token requerido"
+        }, 401
+
+    payload, token_error = decode_auth_token(token)
+    if token_error:
+        return {
+            "status": "error",
+            "message": token_error
+        }, 401
+
+    try:
+        import psycopg2.extras
+
+        conn = get_connection()
+        ensure_users_table(conn)
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute("""
+            SELECT id, email, name, is_active, created_at
+            FROM users
+            WHERE id = %s
+            LIMIT 1;
+        """, (payload.get("sub"),))
+        user = cur.fetchone()
+
+        cur.close()
+        conn.close()
+
+        if not user or not user["is_active"]:
+            return {
+                "status": "error",
+                "message": "Usuario no encontrado o inactivo"
+            }, 401
+
+        return {
+            "status": "OK",
+            "user": serialize_user(user),
+        }
+
+    except Exception as e:
+        return {"error": str(e)}, 500
+
+
+@app.cli.command("create-user")
+@click.argument("email")
+@click.password_option()
+@click.option("--name", default=None, help="Nombre visible del usuario.")
+def create_user_command(email, password, name):
+    conn = get_connection()
+    ensure_users_table(conn)
+    cur = conn.cursor()
+    cur.execute("""
+        INSERT INTO users (email, name, password_hash)
+        VALUES (%s, %s, %s)
+        ON CONFLICT (email)
+        DO UPDATE SET
+            name = EXCLUDED.name,
+            password_hash = EXCLUDED.password_hash,
+            is_active = TRUE,
+            updated_at = CURRENT_TIMESTAMP
+        RETURNING id;
+    """, (normalize_email(email), name, generate_password_hash(password)))
+    user_id = cur.fetchone()[0]
+    conn.commit()
+    cur.close()
+    conn.close()
+    click.echo(f"Usuario listo: {normalize_email(email)} (id={user_id})")
+
 
 @app.route("/")
 def home():
