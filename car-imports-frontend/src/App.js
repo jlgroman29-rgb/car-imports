@@ -6,6 +6,8 @@ import { buildReceiptHtml } from "./receiptTemplate";
 
 const API_BASE_URL = "http://127.0.0.1:5000";
 const AUTH_TOKEN_KEY = "car_imports_access_token";
+const USER_ROLES = ["user", "admin"];
+
 
 const ESTADOS = [
   "inventario",
@@ -48,6 +50,19 @@ function App() {
   const [loginForm, setLoginForm] = useState({ email: "", password: "" });
   const [loginError, setLoginError] = useState("");
   const [loginLoading, setLoginLoading] = useState(false);
+  const [showUsersAdmin, setShowUsersAdmin] = useState(false);
+  const [users, setUsers] = useState([]);
+  const [usersLoading, setUsersLoading] = useState(false);
+  const [usersMessage, setUsersMessage] = useState({ type: "", text: "" });
+  const [editingUserId, setEditingUserId] = useState(null);
+  const [userForm, setUserForm] = useState({
+    name: "",
+    email: "",
+    role: "user",
+    is_active: true,
+    password: ""
+  });
+  const [passwordForm, setPasswordForm] = useState({ userId: null, label: "", password: "" });
   const [vehicles, setVehicles] = useState([]);
   const [form, setForm] = useState({
     vin: "",
@@ -158,6 +173,11 @@ function App() {
     setSales([]);
     setProfitRows([]);
     setReportRows([]);
+    setUsers([]);
+    setShowUsersAdmin(false);
+    setUsersMessage({ type: "", text: "" });
+    setEditingUserId(null);
+    setPasswordForm({ userId: null, label: "", password: "" });
     setSelectedVehicle(null);
     setSelectedSalesVehicle(null);
   };
@@ -232,6 +252,175 @@ function App() {
     clearSession();
     setLoginForm((currentForm) => ({ ...currentForm, password: "" }));
     setLoginError("");
+  };
+
+  const getAuthHeaders = () => {
+    const token = localStorage.getItem(AUTH_TOKEN_KEY);
+    return token ? { Authorization: `Bearer ${token}` } : {};
+  };
+
+  const parseApiError = (payload, fallbackMessage) => {
+    return payload?.message || payload?.error || fallbackMessage;
+  };
+
+  const resetUserForm = () => {
+    setUserForm({
+      name: "",
+      email: "",
+      role: "user",
+      is_active: true,
+      password: ""
+    });
+    setEditingUserId(null);
+  };
+
+  const loadUsers = async () => {
+    setUsersLoading(true);
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/users`, {
+        headers: getAuthHeaders()
+      });
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(parseApiError(data, "No se pudo cargar la lista de usuarios"));
+      }
+
+      setUsers(data.data || []);
+    } catch (error) {
+      console.error("Error cargando usuarios:", error);
+      setUsersMessage({ type: "error", text: error.message || "No se pudo cargar la lista de usuarios" });
+    } finally {
+      setUsersLoading(false);
+    }
+  };
+
+  const handleUserFormChange = (event) => {
+    const { name, value, type, checked } = event.target;
+    setUserForm((currentForm) => ({
+      ...currentForm,
+      [name]: type === "checkbox" ? checked : value
+    }));
+  };
+
+  const handleUserSubmit = async (event) => {
+    event.preventDefault();
+    setUsersMessage({ type: "", text: "" });
+
+    const payload = {
+      name: userForm.name,
+      email: userForm.email,
+      role: userForm.role,
+      is_active: userForm.is_active
+    };
+
+    if (!editingUserId) {
+      payload.password = userForm.password;
+    }
+
+    try {
+      const response = await fetch(
+        editingUserId ? `${API_BASE_URL}/users/${editingUserId}` : `${API_BASE_URL}/users`,
+        {
+          method: editingUserId ? "PATCH" : "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...getAuthHeaders()
+          },
+          body: JSON.stringify(payload)
+        }
+      );
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(parseApiError(data, "No se pudo guardar el usuario"));
+      }
+
+      setUsersMessage({
+        type: "success",
+        text: editingUserId ? "Usuario actualizado correctamente." : "Usuario creado correctamente."
+      });
+      resetUserForm();
+      loadUsers();
+    } catch (error) {
+      console.error("Error guardando usuario:", error);
+      setUsersMessage({ type: "error", text: error.message || "No se pudo guardar el usuario" });
+    }
+  };
+
+  const handleEditUser = (user) => {
+    setUsersMessage({ type: "", text: "" });
+    setEditingUserId(user.id);
+    setUserForm({
+      name: user.name || "",
+      email: user.email || "",
+      role: user.role || "user",
+      is_active: Boolean(user.is_active),
+      password: ""
+    });
+  };
+
+  const handleToggleUserActive = async (user) => {
+    setUsersMessage({ type: "", text: "" });
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/users/${user.id}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          ...getAuthHeaders()
+        },
+        body: JSON.stringify({ is_active: !user.is_active })
+      });
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(parseApiError(data, "No se pudo cambiar el estado del usuario"));
+      }
+
+      setUsersMessage({
+        type: "success",
+        text: `Usuario ${user.is_active ? "desactivado" : "activado"} correctamente.`
+      });
+      loadUsers();
+    } catch (error) {
+      console.error("Error cambiando estado de usuario:", error);
+      setUsersMessage({ type: "error", text: error.message || "No se pudo cambiar el estado del usuario" });
+    }
+  };
+
+  const handlePasswordSubmit = async (event) => {
+    event.preventDefault();
+    setUsersMessage({ type: "", text: "" });
+
+    if (!passwordForm.userId) {
+      setUsersMessage({ type: "error", text: "Selecciona un usuario para cambiar su password." });
+      return;
+    }
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/users/${passwordForm.userId}/password`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          ...getAuthHeaders()
+        },
+        body: JSON.stringify({ password: passwordForm.password })
+      });
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(parseApiError(data, "No se pudo cambiar el password"));
+      }
+
+      setUsersMessage({ type: "success", text: "Password actualizado correctamente." });
+      setPasswordForm({ userId: null, label: "", password: "" });
+      loadUsers();
+    } catch (error) {
+      console.error("Error cambiando password:", error);
+      setUsersMessage({ type: "error", text: error.message || "No se pudo cambiar el password" });
+    }
   };
 
   const resetCostForm = () => {
@@ -498,6 +687,15 @@ function App() {
     loadProfitReport();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authStatus]);
+
+  useEffect(() => {
+    if (authStatus !== "authenticated" || authUser?.role !== "admin") {
+      return;
+    }
+
+    loadUsers();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authStatus, authUser?.role]);
 
   const deleteVehicle = (id) => {
     if (!window.confirm("¿Seguro que deseas eliminar este vehículo?")) return;
@@ -892,6 +1090,8 @@ const formatMoney = (value, currency = "USD") => {
     { title: "Vehículos con ganancia", value: profitTotals.conGanancia, variant: "positive" }
   ];
 
+  const isAdmin = authUser?.role === "admin";
+
   const metricCards = [
     { title: "Total vehículos", value: vehicles.length, icon: "🚗", variant: "neutral" },
     { title: "Valor inventario", value: formatMoney(totalInventario), icon: "💰", variant: "success" },
@@ -967,6 +1167,11 @@ const formatMoney = (value, currency = "USD") => {
             <strong>{authUser?.name || authUser?.email}</strong>
             {authUser?.name && <span>{authUser.email}</span>}
           </div>
+          {isAdmin && (
+            <button className="btn btn-primary" type="button" onClick={() => setShowUsersAdmin((current) => !current)}>
+              Administrar usuarios
+            </button>
+          )}
           <button className="btn btn-secondary" type="button" onClick={handleLogout}>
             Cerrar sesion
           </button>
@@ -1014,6 +1219,172 @@ const formatMoney = (value, currency = "USD") => {
           </div>
         </div>
       </section>
+
+      {isAdmin && showUsersAdmin && (
+        <section className="panel users-admin-panel">
+          <div className="panel-title-row">
+            <div>
+              <h2>Usuarios</h2>
+              <p className="panel-subtitle">Crea usuarios, actualiza rol/estado y cambia passwords. No hay eliminación de usuarios.</p>
+            </div>
+            <button className="btn btn-secondary" type="button" onClick={loadUsers} disabled={usersLoading}>
+              {usersLoading ? "Cargando..." : "Actualizar usuarios"}
+            </button>
+          </div>
+
+          {usersMessage.text && (
+            <div className={`user-feedback user-feedback-${usersMessage.type}`}>{usersMessage.text}</div>
+          )}
+
+          <div className="users-admin-grid">
+            <form className="admin-user-form" onSubmit={handleUserSubmit}>
+              <h3>{editingUserId ? "Editar usuario" : "Crear usuario"}</h3>
+              <div className="form-grid user-form-grid">
+                <input
+                  className="input-control"
+                  name="name"
+                  placeholder="Nombre"
+                  value={userForm.name}
+                  onChange={handleUserFormChange}
+                />
+                <input
+                  className="input-control"
+                  type="email"
+                  name="email"
+                  placeholder="Email"
+                  value={userForm.email}
+                  onChange={handleUserFormChange}
+                  required
+                />
+                <select className="input-control" name="role" value={userForm.role} onChange={handleUserFormChange}>
+                  {USER_ROLES.map((role) => (
+                    <option key={role} value={role}>
+                      {role === "admin" ? "Admin" : "Usuario"}
+                    </option>
+                  ))}
+                </select>
+                {!editingUserId && (
+                  <input
+                    className="input-control"
+                    type="password"
+                    name="password"
+                    placeholder="Password inicial"
+                    value={userForm.password}
+                    onChange={handleUserFormChange}
+                    required
+                  />
+                )}
+                <label className="checkbox-field">
+                  <input
+                    type="checkbox"
+                    name="is_active"
+                    checked={userForm.is_active}
+                    onChange={handleUserFormChange}
+                  />
+                  Usuario activo
+                </label>
+              </div>
+              <div className="cost-form-actions user-form-actions">
+                <button className="btn btn-primary" type="submit">
+                  {editingUserId ? "Actualizar usuario" : "Crear usuario"}
+                </button>
+                {editingUserId && (
+                  <button className="btn btn-secondary" type="button" onClick={resetUserForm}>
+                    Cancelar edición
+                  </button>
+                )}
+              </div>
+            </form>
+
+            <form className="admin-user-form" onSubmit={handlePasswordSubmit}>
+              <h3>Cambiar password</h3>
+              <p className="panel-subtitle">
+                {passwordForm.userId ? `Usuario seleccionado: ${passwordForm.label}` : "Selecciona un usuario desde la tabla."}
+              </p>
+              <div className="form-grid user-form-grid">
+                <input
+                  className="input-control"
+                  type="password"
+                  placeholder="Nuevo password"
+                  value={passwordForm.password}
+                  onChange={(event) => setPasswordForm((current) => ({ ...current, password: event.target.value }))}
+                  required
+                  disabled={!passwordForm.userId}
+                />
+                <button className="btn btn-primary" type="submit" disabled={!passwordForm.userId}>
+                  Cambiar password
+                </button>
+              </div>
+            </form>
+          </div>
+
+          <div className="table-wrapper">
+            <table className="data-table users-table">
+              <thead>
+                <tr>
+                  <th>ID</th>
+                  <th>Nombre</th>
+                  <th>Email</th>
+                  <th>Rol</th>
+                  <th>Estado</th>
+                  <th>Acciones</th>
+                </tr>
+              </thead>
+              <tbody>
+                {usersLoading ? (
+                  <tr>
+                    <td colSpan={6} className="report-empty-cell">
+                      Cargando usuarios...
+                    </td>
+                  </tr>
+                ) : users.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} className="report-empty-cell">
+                      No hay usuarios para mostrar.
+                    </td>
+                  </tr>
+                ) : (
+                  users.map((user) => (
+                    <tr key={user.id}>
+                      <td>{user.id}</td>
+                      <td>{user.name || "—"}</td>
+                      <td>{user.email}</td>
+                      <td>
+                        <span className={`role-pill role-${user.role}`}>
+                          {user.role === "admin" ? "Admin" : "Usuario"}
+                        </span>
+                      </td>
+                      <td>
+                        <span className={`status-pill user-status-${user.is_active ? "active" : "inactive"}`}>
+                          {user.is_active ? "Activo" : "Inactivo"}
+                        </span>
+                      </td>
+                      <td>
+                        <div className="table-actions">
+                          <button className="btn btn-secondary" type="button" onClick={() => handleEditUser(user)}>
+                            Editar
+                          </button>
+                          <button
+                            className="btn btn-primary"
+                            type="button"
+                            onClick={() => setPasswordForm({ userId: user.id, label: user.name || user.email, password: "" })}
+                          >
+                            Password
+                          </button>
+                          <button className="btn btn-secondary" type="button" onClick={() => handleToggleUserActive(user)}>
+                            {user.is_active ? "Desactivar" : "Activar"}
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
+
       <section className="panel">
         <h2>{editingId ? "Editar vehículo" : "Registrar vehículo"}</h2>
         <form onSubmit={handleSubmit} className="form-grid">
