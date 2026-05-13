@@ -60,14 +60,30 @@ def ensure_users_table(conn):
             id SERIAL PRIMARY KEY,
             email TEXT UNIQUE NOT NULL,
             name TEXT,
+            role TEXT NOT NULL DEFAULT 'user',
             password_hash TEXT NOT NULL,
             is_active BOOLEAN NOT NULL DEFAULT TRUE,
             created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
             updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
         );
     """)
+    cur.execute("""
+        ALTER TABLE users
+        ADD COLUMN IF NOT EXISTS role TEXT NOT NULL DEFAULT 'user';
+    """)
+    cur.execute("""
+        ALTER TABLE users
+        ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE;
+    """)
+    cur.execute("""
+        ALTER TABLE users
+        ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP;
+    """)
     conn.commit()
     cur.close()
+
+
+VALID_USER_ROLES = ["admin", "user"]
 
 
 def normalize_email(email):
@@ -79,9 +95,38 @@ def serialize_user(row):
         "id": row["id"],
         "email": row["email"],
         "name": row.get("name"),
+        "role": row.get("role", "user"),
         "is_active": row["is_active"],
         "created_at": row.get("created_at"),
+        "updated_at": row.get("updated_at"),
     }
+
+
+def parse_boolean(value, field_name):
+    if isinstance(value, bool):
+        return value, None
+
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in ("true", "1", "yes", "si", "sí"):
+            return True, None
+        if normalized in ("false", "0", "no"):
+            return False, None
+
+    return None, {
+        "status": "error",
+        "message": f"{field_name} debe ser booleano"
+    }
+
+
+def validate_user_role(role):
+    if role not in VALID_USER_ROLES:
+        return {
+            "status": "error",
+            "message": f"role invalido. Usa uno de estos: {VALID_USER_ROLES}"
+        }
+
+    return None
 
 
 def base64url_encode(data):
@@ -101,6 +146,7 @@ def create_auth_token(user):
         "sub": str(user["id"]),
         "email": user["email"],
         "name": user.get("name"),
+        "role": user.get("role", "user"),
         "iat": now,
         "exp": now + expires_in,
     }
@@ -157,6 +203,63 @@ def get_bearer_token():
         return parts[1]
 
     return None
+
+
+def get_authenticated_user():
+    token = get_bearer_token()
+    if not token:
+        return None, ({
+            "status": "error",
+            "message": "Authorization Bearer token requerido"
+        }, 401)
+
+    payload, token_error = decode_auth_token(token)
+    if token_error:
+        return None, ({
+            "status": "error",
+            "message": token_error
+        }, 401)
+
+    try:
+        import psycopg2.extras
+
+        conn = get_connection()
+        ensure_users_table(conn)
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute("""
+            SELECT id, email, name, role, is_active, created_at, updated_at
+            FROM users
+            WHERE id = %s
+            LIMIT 1;
+        """, (payload.get("sub"),))
+        user = cur.fetchone()
+
+        cur.close()
+        conn.close()
+    except Exception as e:
+        return None, ({"error": str(e)}, 500)
+
+    if not user or not user["is_active"]:
+        return None, ({
+            "status": "error",
+            "message": "Usuario no encontrado o inactivo"
+        }, 401)
+
+    return user, None
+
+
+def require_admin_user():
+    user, error_response = get_authenticated_user()
+    if error_response:
+        return None, error_response
+
+    if user.get("role") != "admin":
+        return None, ({
+            "status": "error",
+            "message": "Se requiere rol admin"
+        }, 403)
+
+    return user, None
 
 
 def parse_date_filter(value, field_name):
@@ -351,7 +454,7 @@ def login():
         ensure_users_table(conn)
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         cur.execute("""
-            SELECT id, email, name, password_hash, is_active, created_at
+            SELECT id, email, name, role, password_hash, is_active, created_at, updated_at
             FROM users
             WHERE LOWER(email) = %s
             LIMIT 1;
@@ -404,7 +507,7 @@ def auth_me():
         ensure_users_table(conn)
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         cur.execute("""
-            SELECT id, email, name, is_active, created_at
+            SELECT id, email, name, role, is_active, created_at, updated_at
             FROM users
             WHERE id = %s
             LIMIT 1;
@@ -429,30 +532,280 @@ def auth_me():
         return {"error": str(e)}, 500
 
 
+@app.route("/users", methods=["GET"])
+def list_users():
+    admin_user, error_response = require_admin_user()
+    if error_response:
+        return error_response
+
+    try:
+        import psycopg2.extras
+
+        conn = get_connection()
+        ensure_users_table(conn)
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute("""
+            SELECT id, email, name, role, is_active, created_at, updated_at
+            FROM users
+            ORDER BY id ASC;
+        """)
+        users = cur.fetchall()
+
+        cur.close()
+        conn.close()
+
+        return {
+            "status": "OK",
+            "data": [serialize_user(user) for user in users],
+        }
+
+    except Exception as e:
+        return {"error": str(e)}, 500
+
+
+@app.route("/users", methods=["POST"])
+def create_user():
+    admin_user, error_response = require_admin_user()
+    if error_response:
+        return error_response
+
+    data = request.get_json(silent=True) or {}
+    email = normalize_email(data.get("email"))
+    password = data.get("password") or ""
+    name = data.get("name")
+    role = data.get("role", "user")
+    is_active = data.get("is_active", True)
+
+    if not email or not password:
+        return {
+            "status": "error",
+            "message": "email y password son requeridos"
+        }, 400
+
+    role_error = validate_user_role(role)
+    if role_error:
+        return role_error, 400
+
+    is_active, is_active_error = parse_boolean(is_active, "is_active")
+    if is_active_error:
+        return is_active_error, 400
+
+    try:
+        import psycopg2.extras
+        from psycopg2 import errors
+
+        conn = get_connection()
+        ensure_users_table(conn)
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute("""
+            INSERT INTO users (email, name, role, password_hash, is_active)
+            VALUES (%s, %s, %s, %s, %s)
+            RETURNING id, email, name, role, is_active, created_at, updated_at;
+        """, (email, name, role, generate_password_hash(password), is_active))
+        user = cur.fetchone()
+        conn.commit()
+
+        cur.close()
+        conn.close()
+
+        return {
+            "status": "success",
+            "message": "Usuario creado correctamente",
+            "user": serialize_user(user),
+        }, 201
+
+    except errors.UniqueViolation:
+        conn.rollback()
+        cur.close()
+        conn.close()
+        return {
+            "status": "error",
+            "message": "Ya existe un usuario con ese email"
+        }, 409
+    except Exception as e:
+        return {"error": str(e)}, 500
+
+
+@app.route("/users/<int:user_id>", methods=["PATCH"])
+def update_user(user_id):
+    admin_user, error_response = require_admin_user()
+    if error_response:
+        return error_response
+
+    data = request.get_json(silent=True) or {}
+    allowed_fields = {"name", "email", "role", "is_active"}
+    provided_fields = allowed_fields.intersection(data.keys())
+
+    if not provided_fields:
+        return {
+            "status": "error",
+            "message": "Envia al menos uno de estos campos: name, email, role, is_active"
+        }, 400
+
+    updates = []
+    params = []
+
+    if "name" in data:
+        updates.append("name = %s")
+        params.append(data.get("name"))
+
+    if "email" in data:
+        email = normalize_email(data.get("email"))
+        if not email:
+            return {
+                "status": "error",
+                "message": "email no puede estar vacio"
+            }, 400
+        updates.append("email = %s")
+        params.append(email)
+
+    if "role" in data:
+        role = data.get("role")
+        role_error = validate_user_role(role)
+        if role_error:
+            return role_error, 400
+        updates.append("role = %s")
+        params.append(role)
+
+    if "is_active" in data:
+        is_active, is_active_error = parse_boolean(data.get("is_active"), "is_active")
+        if is_active_error:
+            return is_active_error, 400
+        updates.append("is_active = %s")
+        params.append(is_active)
+
+    updates.append("updated_at = CURRENT_TIMESTAMP")
+    params.append(user_id)
+
+    try:
+        import psycopg2.extras
+        from psycopg2 import errors
+
+        conn = get_connection()
+        ensure_users_table(conn)
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute(f"""
+            UPDATE users
+            SET {", ".join(updates)}
+            WHERE id = %s
+            RETURNING id, email, name, role, is_active, created_at, updated_at;
+        """, params)
+        user = cur.fetchone()
+
+        if not user:
+            conn.rollback()
+            cur.close()
+            conn.close()
+            return {
+                "status": "error",
+                "message": "Usuario no encontrado"
+            }, 404
+
+        conn.commit()
+        cur.close()
+        conn.close()
+
+        return {
+            "status": "OK",
+            "message": "Usuario actualizado correctamente",
+            "user": serialize_user(user),
+        }
+
+    except errors.UniqueViolation:
+        conn.rollback()
+        cur.close()
+        conn.close()
+        return {
+            "status": "error",
+            "message": "Ya existe un usuario con ese email"
+        }, 409
+    except Exception as e:
+        return {"error": str(e)}, 500
+
+
+@app.route("/users/<int:user_id>/password", methods=["PATCH"])
+def update_user_password(user_id):
+    admin_user, error_response = require_admin_user()
+    if error_response:
+        return error_response
+
+    data = request.get_json(silent=True) or {}
+    password = data.get("password") or ""
+
+    if not password:
+        return {
+            "status": "error",
+            "message": "password es requerido"
+        }, 400
+
+    try:
+        import psycopg2.extras
+
+        conn = get_connection()
+        ensure_users_table(conn)
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute("""
+            UPDATE users
+            SET password_hash = %s, updated_at = CURRENT_TIMESTAMP
+            WHERE id = %s
+            RETURNING id, email, name, role, is_active, created_at, updated_at;
+        """, (generate_password_hash(password), user_id))
+        user = cur.fetchone()
+
+        if not user:
+            conn.rollback()
+            cur.close()
+            conn.close()
+            return {
+                "status": "error",
+                "message": "Usuario no encontrado"
+            }, 404
+
+        conn.commit()
+        cur.close()
+        conn.close()
+
+        return {
+            "status": "OK",
+            "message": "Password actualizado correctamente",
+            "user": serialize_user(user),
+        }
+
+    except Exception as e:
+        return {"error": str(e)}, 500
+
+
 @app.cli.command("create-user")
 @click.argument("email")
 @click.password_option()
 @click.option("--name", default=None, help="Nombre visible del usuario.")
-def create_user_command(email, password, name):
+@click.option(
+    "--role",
+    default="admin",
+    type=click.Choice(VALID_USER_ROLES),
+    help="Rol del usuario. Usa admin para el primer usuario administrador.",
+)
+def create_user_command(email, password, name, role):
     conn = get_connection()
     ensure_users_table(conn)
     cur = conn.cursor()
     cur.execute("""
-        INSERT INTO users (email, name, password_hash)
-        VALUES (%s, %s, %s)
+        INSERT INTO users (email, name, role, password_hash)
+        VALUES (%s, %s, %s, %s)
         ON CONFLICT (email)
         DO UPDATE SET
             name = EXCLUDED.name,
+            role = EXCLUDED.role,
             password_hash = EXCLUDED.password_hash,
             is_active = TRUE,
             updated_at = CURRENT_TIMESTAMP
         RETURNING id;
-    """, (normalize_email(email), name, generate_password_hash(password)))
+    """, (normalize_email(email), name, role, generate_password_hash(password)))
     user_id = cur.fetchone()[0]
     conn.commit()
     cur.close()
     conn.close()
-    click.echo(f"Usuario listo: {normalize_email(email)} (id={user_id})")
+    click.echo(f"Usuario listo: {normalize_email(email)} (id={user_id}, role={role})")
 
 
 @app.route("/")

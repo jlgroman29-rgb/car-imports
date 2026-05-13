@@ -23,10 +23,10 @@ Si no defines `AUTH_TOKEN_SECRET`, el backend usa un secreto local de desarrollo
 Desde la raiz del proyecto:
 
 ```powershell
-python -m flask --app car-imports-backend/app.py create-user admin@example.com --name "Admin"
+python -m flask --app car-imports-backend/app.py create-user admin@example.com --name "Admin" --role admin
 ```
 
-El comando pedira el password en consola, creara la tabla `users` si no existe y guardara el password con hash seguro de Werkzeug.
+El comando pedira el password en consola, creara la tabla `users` si no existe y guardara el password con hash seguro de Werkzeug. Por defecto crea/actualiza el usuario como `admin`; tambien puedes usar `--role user`.
 
 ## Probar en Postman
 
@@ -45,3 +45,8 @@ El comando pedira el password en consola, creara la tabla `users` si no existe y
 5. En `Authorization`, usar tipo `Bearer Token` y pegar el token.
 
 Los endpoints existentes de vehicles, costs, sales, reports y exports siguen sin proteccion en este paso.
+
+
+## Administracion de usuarios
+
+Los endpoints backend de mantenimiento de usuarios estan documentados en [`docs/users-admin.md`](users-admin.md).
