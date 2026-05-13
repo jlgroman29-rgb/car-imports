@@ -4,6 +4,9 @@ import "./App.css";
 import { exportCostReport, exportFinancialReport, EXPORT_FORMATS } from "./reportExport";
 import { buildReceiptHtml } from "./receiptTemplate";
 
+const API_BASE_URL = "http://127.0.0.1:5000";
+const AUTH_TOKEN_KEY = "car_imports_access_token";
+
 const ESTADOS = [
   "inventario",
   "comprado",
@@ -39,6 +42,12 @@ const coloresEstado = {
 const estadoLabel = (estado) => estado.replaceAll("_", " ");
 function App() {
   const initialDataLoadedRef = useRef(false);
+  const [authStatus, setAuthStatus] = useState("checking");
+  const [authUser, setAuthUser] = useState(null);
+  const [authExpiresAt, setAuthExpiresAt] = useState(null);
+  const [loginForm, setLoginForm] = useState({ email: "", password: "" });
+  const [loginError, setLoginError] = useState("");
+  const [loginLoading, setLoginLoading] = useState(false);
   const [vehicles, setVehicles] = useState([]);
   const [form, setForm] = useState({
     vin: "",
@@ -50,7 +59,7 @@ function App() {
   });
 
   const loadVehicles = () => {
-    fetch("http://127.0.0.1:5000/vehicles")
+    fetch(`${API_BASE_URL}/vehicles`)
       .then((res) => res.json())
       .then(async (data) => {
         console.log("DATA BACKEND:", data);
@@ -60,7 +69,7 @@ function App() {
         const salesMapEntries = await Promise.all(
           list.map(async (vehicle) => {
             try {
-              const response = await fetch(`http://127.0.0.1:5000/vehicles/${vehicle.id}/sales`);
+              const response = await fetch(`${API_BASE_URL}/vehicles/${vehicle.id}/sales`);
               const payload = await response.json();
               const hasSale = response.ok && Array.isArray(payload?.data) && payload.data.length > 0;
               return [vehicle.id, hasSale];
@@ -78,14 +87,14 @@ function App() {
     setCosts([]);
     setTotalCost(0);
 
-    fetch(`http://127.0.0.1:5000/vehicles/${vehicleId}/costs`)
+    fetch(`${API_BASE_URL}/vehicles/${vehicleId}/costs`)
       .then((res) => res.json())
       .then((data) => {
         setCosts(data.data || []);
       })
       .catch((err) => console.error("Error cargando costos:", err));
 
-    fetch(`http://127.0.0.1:5000/vehicles/${vehicleId}/costs/total`)
+    fetch(`${API_BASE_URL}/vehicles/${vehicleId}/costs/total`)
       .then((res) => res.json())
       .then((data) => {
         setTotalCost(data.total_cost || 0);
@@ -138,6 +147,93 @@ function App() {
     descripcion: ""
   });
 
+  const clearSession = () => {
+    localStorage.removeItem(AUTH_TOKEN_KEY);
+    setAuthUser(null);
+    setAuthExpiresAt(null);
+    setAuthStatus("unauthenticated");
+    initialDataLoadedRef.current = false;
+    setVehicles([]);
+    setCosts([]);
+    setSales([]);
+    setProfitRows([]);
+    setReportRows([]);
+    setSelectedVehicle(null);
+    setSelectedSalesVehicle(null);
+  };
+
+  const getTokenExpiration = (token) => {
+    try {
+      const payloadPart = token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/");
+      const padding = "=".repeat((4 - (payloadPart.length % 4)) % 4);
+      const payload = JSON.parse(window.atob(payloadPart + padding));
+      return payload.exp ? payload.exp * 1000 : null;
+    } catch (_error) {
+      return null;
+    }
+  };
+
+  const loadCurrentUser = async (token) => {
+    const response = await fetch(`${API_BASE_URL}/auth/me`, {
+      headers: {
+        Authorization: `Bearer ${token}`
+      }
+    });
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(data.message || "Sesion invalida");
+    }
+
+    setAuthUser(data.user);
+    setAuthExpiresAt(getTokenExpiration(token));
+    setAuthStatus("authenticated");
+    return data.user;
+  };
+
+  const handleLoginChange = (event) => {
+    const { name, value } = event.target;
+    setLoginForm((currentForm) => ({ ...currentForm, [name]: value }));
+  };
+
+  const handleLoginSubmit = async (event) => {
+    event.preventDefault();
+    setLoginError("");
+    setLoginLoading(true);
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/auth/login`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify(loginForm)
+      });
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.message || "No se pudo iniciar sesion");
+      }
+
+      localStorage.setItem(AUTH_TOKEN_KEY, data.access_token);
+      await loadCurrentUser(data.access_token);
+      setLoginForm((currentForm) => ({ ...currentForm, password: "" }));
+    } catch (error) {
+      localStorage.removeItem(AUTH_TOKEN_KEY);
+      setAuthUser(null);
+      setAuthStatus("unauthenticated");
+      setLoginError(error.message || "No se pudo iniciar sesion");
+    } finally {
+      setLoginLoading(false);
+    }
+  };
+
+  const handleLogout = () => {
+    clearSession();
+    setLoginForm((currentForm) => ({ ...currentForm, password: "" }));
+    setLoginError("");
+  };
+
   const resetCostForm = () => {
     setCostForm({
       tipo: "",
@@ -159,8 +255,8 @@ function App() {
     }
 
     const url = editingCostId
-      ? `http://127.0.0.1:5000/costs/${editingCostId}`
-      : "http://127.0.0.1:5000/costs";
+      ? `${API_BASE_URL}/costs/${editingCostId}`
+      : `${API_BASE_URL}/costs`;
 
     const method = editingCostId ? "PATCH" : "POST";
 
@@ -225,7 +321,7 @@ function App() {
   const handleDeleteCost = (costId) => {
     if (!window.confirm("¿Seguro que deseas eliminar este costo?")) return;
 
-    fetch(`http://127.0.0.1:5000/costs/${costId}`, {
+    fetch(`${API_BASE_URL}/costs/${costId}`, {
       method: "DELETE"
     })
       .then((res) => res.json())
@@ -260,7 +356,7 @@ function App() {
 
   const loadSales = (vehicleId) => {
     setSales([]);
-    fetch(`http://127.0.0.1:5000/vehicles/${vehicleId}/sales`)
+    fetch(`${API_BASE_URL}/vehicles/${vehicleId}/sales`)
       .then((res) => res.json())
       .then((data) => setSales(data.data || []))
       .catch((err) => console.error("Error cargando ventas:", err));
@@ -288,7 +384,7 @@ function App() {
   const handleAddSale = (e) => {
     e.preventDefault();
     if (!selectedSalesVehicle) return;
-    const url = editingSaleId ? `http://127.0.0.1:5000/sales/${editingSaleId}` : "http://127.0.0.1:5000/sales";
+    const url = editingSaleId ? `${API_BASE_URL}/sales/${editingSaleId}` : `${API_BASE_URL}/sales`;
     const method = editingSaleId ? "PATCH" : "POST";
     const payload = {
       ...saleForm,
@@ -335,7 +431,7 @@ function App() {
 
   const handleDeleteSale = (saleId) => {
     if (!window.confirm("¿Seguro que deseas eliminar esta venta?")) return;
-    fetch(`http://127.0.0.1:5000/sales/${saleId}`, { method: "DELETE" })
+    fetch(`${API_BASE_URL}/sales/${saleId}`, { method: "DELETE" })
       .then((res) => res.json())
       .then(() => {
         if (selectedSalesVehicle) {
@@ -349,6 +445,50 @@ function App() {
   };
 
   useEffect(() => {
+    const token = localStorage.getItem(AUTH_TOKEN_KEY);
+
+    if (!token) {
+      setAuthStatus("unauthenticated");
+      return;
+    }
+
+    loadCurrentUser(token).catch(() => {
+      clearSession();
+      setLoginError("Tu sesion expiro o ya no es valida. Inicia sesion nuevamente.");
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    if (authStatus !== "authenticated") {
+      return;
+    }
+
+    if (!authExpiresAt) {
+      return;
+    }
+
+    const millisecondsUntilExpiration = authExpiresAt - Date.now();
+
+    if (millisecondsUntilExpiration <= 0) {
+      clearSession();
+      setLoginError("Tu sesion expiro. Inicia sesion nuevamente.");
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      clearSession();
+      setLoginError("Tu sesion expiro. Inicia sesion nuevamente.");
+    }, millisecondsUntilExpiration);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [authStatus, authExpiresAt]);
+
+  useEffect(() => {
+    if (authStatus !== "authenticated") {
+      return;
+    }
+
     if (initialDataLoadedRef.current) {
       return;
     }
@@ -356,12 +496,13 @@ function App() {
     initialDataLoadedRef.current = true;
     loadVehicles();
     loadProfitReport();
-  });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authStatus]);
 
   const deleteVehicle = (id) => {
     if (!window.confirm("¿Seguro que deseas eliminar este vehículo?")) return;
 
-    fetch(`http://localhost:5000/vehicles/${id}`, {
+    fetch(`${API_BASE_URL}/vehicles/${id}`, {
       method: "DELETE"
     })
       .then((res) => res.json())
@@ -389,8 +530,8 @@ function App() {
     e.preventDefault();
 
     const url = editingId
-      ? `http://localhost:5000/vehicles/${editingId}`
-      : "http://localhost:5000/vehicles";
+      ? `${API_BASE_URL}/vehicles/${editingId}`
+      : `${API_BASE_URL}/vehicles`;
 
     const method = editingId ? "PATCH" : "POST";
 
@@ -521,7 +662,7 @@ const formatMoney = (value, currency = "USD") => {
     if (filters.start_date) params.append("start_date", filters.start_date);
     if (filters.end_date) params.append("end_date", filters.end_date);
     const queryString = params.toString();
-    const url = `http://127.0.0.1:5000/vehicles/profit-report${queryString ? `?${queryString}` : ""}`;
+    const url = `${API_BASE_URL}/vehicles/profit-report${queryString ? `?${queryString}` : ""}`;
 
     try {
       const response = await fetch(url);
@@ -574,8 +715,8 @@ const formatMoney = (value, currency = "USD") => {
       const rows = await Promise.all(
         vehicles.map(async (vehicle) => {
           const [costsResponse, totalResponse] = await Promise.all([
-            fetch(`http://127.0.0.1:5000/vehicles/${vehicle.id}/costs`),
-            fetch(`http://127.0.0.1:5000/vehicles/${vehicle.id}/costs/total`)
+            fetch(`${API_BASE_URL}/vehicles/${vehicle.id}/costs`),
+            fetch(`${API_BASE_URL}/vehicles/${vehicle.id}/costs/total`)
           ]);
 
           const costsPayload = await costsResponse.json();
@@ -677,7 +818,7 @@ const formatMoney = (value, currency = "USD") => {
     receiptWindow.document.write("<p style='font-family: Arial, sans-serif; padding: 16px;'>Generando factura...</p>");
 
     try {
-      const response = await fetch(`http://127.0.0.1:5000/vehicles/${vehicle.id}/sales`);
+      const response = await fetch(`${API_BASE_URL}/vehicles/${vehicle.id}/sales`);
       const payload = await response.json();
       const sale = payload?.data?.[0];
 
@@ -759,6 +900,59 @@ const formatMoney = (value, currency = "USD") => {
     { title: "Valor disponible", value: formatMoney(valorDisponible), icon: "💵", variant: "primary" }
   ];
 
+  if (authStatus !== "authenticated") {
+    return (
+      <main className="login-shell">
+        <section className="login-panel" aria-busy={authStatus === "checking"}>
+          <div className="login-brand">
+            <p className="eyebrow">Car Imports Dashboard</p>
+            <h1>Acceso seguro</h1>
+            <p className="page-subtitle">Ingresa con tu usuario para ver inventario, ventas y reportes.</p>
+          </div>
+
+          {authStatus === "checking" ? (
+            <div className="login-status">Validando sesion...</div>
+          ) : (
+            <form className="login-form" onSubmit={handleLoginSubmit}>
+              <label className="login-field">
+                Email
+                <input
+                  className="input-control"
+                  type="email"
+                  name="email"
+                  value={loginForm.email}
+                  onChange={handleLoginChange}
+                  placeholder="admin@example.com"
+                  autoComplete="email"
+                  required
+                />
+              </label>
+              <label className="login-field">
+                Password
+                <input
+                  className="input-control"
+                  type="password"
+                  name="password"
+                  value={loginForm.password}
+                  onChange={handleLoginChange}
+                  placeholder="Tu password"
+                  autoComplete="current-password"
+                  required
+                />
+              </label>
+
+              {loginError && <div className="login-error">{loginError}</div>}
+
+              <button className="btn btn-primary login-submit" type="submit" disabled={loginLoading}>
+                {loginLoading ? "Ingresando..." : "Iniciar sesion"}
+              </button>
+            </form>
+          )}
+        </section>
+      </main>
+    );
+  }
+
   return (
     <div className="app-shell">
       <header className="page-header">
@@ -766,6 +960,16 @@ const formatMoney = (value, currency = "USD") => {
           <p className="eyebrow">Car Imports Dashboard</p>
           <h1>Inventario de Vehículos</h1>
           <p className="page-subtitle">Gestión de inventario, estados y costos por unidad.</p>
+        </div>
+        <div className="user-menu">
+          <div className="user-meta">
+            <span className="user-label">Sesion activa</span>
+            <strong>{authUser?.name || authUser?.email}</strong>
+            {authUser?.name && <span>{authUser.email}</span>}
+          </div>
+          <button className="btn btn-secondary" type="button" onClick={handleLogout}>
+            Cerrar sesion
+          </button>
         </div>
       </header>
 
