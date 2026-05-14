@@ -517,3 +517,98 @@ h1 {
   gap: 10px;
   flex-wrap: wrap;
 }
+
+.users-admin-panel {
+  border: 1px solid #bfdbfe;
+}
+
+.users-admin-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.3fr) minmax(280px, 0.7fr);
+  gap: 16px;
+  margin-top: 16px;
+}
+
+.admin-user-form {
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 14px;
+  background: #f8fafc;
+}
+
+.user-form-grid {
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+}
+
+.user-form-actions {
+  margin-top: 12px;
+}
+
+.checkbox-field {
+  min-height: 42px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.user-feedback {
+  margin-top: 14px;
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-weight: 700;
+}
+
+.user-feedback-success {
+  border: 1px solid #bbf7d0;
+  background: #f0fdf4;
+  color: #166534;
+}
+
+.user-feedback-error {
+  border: 1px solid #fecaca;
+  background: #fef2f2;
+  color: #991b1b;
+}
+
+.users-table {
+  min-width: 920px;
+}
+
+.role-pill {
+  display: inline-block;
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.role-admin {
+  background: #dbeafe;
+  color: #1e40af;
+}
+
+.role-user {
+  background: #f1f5f9;
+  color: #334155;
+}
+
+.user-status-active {
+  border-color: #bbf7d0;
+  background: #f0fdf4;
+  color: #166534;
+}
+
+.user-status-inactive {
+  border-color: #fecaca;
+  background: #fef2f2;
+  color: #991b1b;
+}
+
+@media (max-width: 900px) {
+  .users-admin-grid {
+    grid-template-columns: 1fr;
+  }
+}
