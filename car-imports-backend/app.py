@@ -428,6 +428,7 @@ def serialize_profit_row(row):
         "modelo": row["modelo"],
         "anio": row["anio"],
         "estado": row["estado"],
+        "precio_estimado": float(row["precio_estimado"]) if row.get("precio_estimado") is not None else 0.0,
         "total_costos": total_costos,
         "total_venta": total_venta,
         "ganancia_real": ganancia_real,
@@ -1429,6 +1430,7 @@ def get_profit_by_vehicle(vehicle_id):
                 v.modelo,
                 v.anio,
                 v.estado,
+                v.precio_estimado,
                 COALESCE(costs_agg.total_costos, 0) AS total_costos,
                 COALESCE(sales_agg.total_venta, 0) AS total_venta,
                 COALESCE(sales_agg.total_venta, 0) - COALESCE(costs_agg.total_costos, 0) AS ganancia_real
@@ -1505,6 +1507,7 @@ def get_profit_report():
                 v.modelo,
                 v.anio,
                 v.estado,
+                v.precio_estimado,
                 COALESCE(costs_agg.total_costos, 0) AS total_costos,
                 COALESCE(sales_agg.total_venta, 0) AS total_venta,
                 COALESCE(sales_agg.total_venta, 0) - COALESCE(costs_agg.total_costos, 0) AS ganancia_real

@@ -140,6 +140,15 @@ function App() {
     start_date: "",
     end_date: ""
   });
+  const [inventoryFilters, setInventoryFilters] = useState({
+    estado: "",
+    marca: "",
+    anio: "",
+    minPrecio: "",
+    maxPrecio: "",
+    conCostos: "",
+    conVenta: ""
+  });
   const [selectedSalesVehicle, setSelectedSalesVehicle] = useState(null);
   const [sales, setSales] = useState([]);
   const [editingSaleId, setEditingSaleId] = useState(null);
@@ -898,6 +907,22 @@ const formatMoney = (value, currency = "USD") => {
     setFinancialFilters(cleanFilters);
     loadProfitReport(cleanFilters);
   };
+  const handleInventoryFilterChange = (event) => {
+    const { name, value } = event.target;
+    setInventoryFilters((current) => ({ ...current, [name]: value }));
+  };
+
+  const clearInventoryFilters = () => {
+    setInventoryFilters({
+      estado: "",
+      marca: "",
+      anio: "",
+      minPrecio: "",
+      maxPrecio: "",
+      conCostos: "",
+      conVenta: ""
+    });
+  };
 
   const loadReport = async () => {
     if (!vehicles.length) {
@@ -1004,6 +1029,37 @@ const formatMoney = (value, currency = "USD") => {
       setExportingFinancialReport(false);
     }
   };
+  const handleExportInventoryReport = (format) => {
+    const printWindow = format === EXPORT_FORMATS.PDF ? window.open("", "_blank") : null;
+    if (format === EXPORT_FORMATS.PDF && !printWindow) {
+      alert("No se pudo abrir la ventana de impresión. Habilita los pop-ups e inténtalo de nuevo.");
+      return;
+    }
+
+    const inventoryTotals = advancedInventoryRows.reduce(
+      (acc, row) => ({
+        totalVentas: acc.totalVentas + Number(row.total_venta || 0),
+        totalCostos: acc.totalCostos + Number(row.total_costos || 0),
+        gananciaTotal: acc.gananciaTotal + Number(row.ganancia_real || 0),
+        sumaMargen: acc.sumaMargen + Number(row.margen_porcentaje || 0),
+        vendidos: acc.vendidos + (Number(row.total_venta || 0) > 0 ? 1 : 0),
+        disponibles: acc.disponibles + (row.estado === "disponible" ? 1 : 0),
+        conPerdida: acc.conPerdida + (Number(row.ganancia_real || 0) < 0 ? 1 : 0),
+        conGanancia: acc.conGanancia + (Number(row.ganancia_real || 0) > 0 ? 1 : 0)
+      }),
+      { totalVentas: 0, totalCostos: 0, gananciaTotal: 0, sumaMargen: 0, vendidos: 0, disponibles: 0, conPerdida: 0, conGanancia: 0 }
+    );
+
+    exportFinancialReport({
+      format,
+      profitRows: advancedInventoryRows,
+      profitTotals: inventoryTotals,
+      margenPromedio: advancedInventoryRows.length ? inventoryTotals.sumaMargen / advancedInventoryRows.length : 0,
+      filters: appliedFinancialFilters,
+      estadoLabel,
+      printWindow
+    });
+  };
 
   const handlePrintReceipt = async (vehicle) => {
     const receiptWindow = window.open("", "_blank");
@@ -1089,6 +1145,25 @@ const formatMoney = (value, currency = "USD") => {
     { title: "Vehículos con pérdida", value: profitTotals.conPerdida, variant: "negative" },
     { title: "Vehículos con ganancia", value: profitTotals.conGanancia, variant: "positive" }
   ];
+  const uniqueBrands = [...new Set(profitRows.map((row) => row.marca).filter(Boolean))].sort((a, b) =>
+    a.localeCompare(b, "es")
+  );
+  const uniqueYears = [...new Set(profitRows.map((row) => row.anio).filter(Boolean))].sort((a, b) => Number(b) - Number(a));
+  const advancedInventoryRows = profitRows.filter((row) => {
+    const precio = Number(row.precio_estimado || 0);
+    const hasCostos = Number(row.total_costos || 0) > 0;
+    const hasVenta = Number(row.total_venta || 0) > 0;
+    if (inventoryFilters.estado && row.estado !== inventoryFilters.estado) return false;
+    if (inventoryFilters.marca && row.marca !== inventoryFilters.marca) return false;
+    if (inventoryFilters.anio && String(row.anio) !== String(inventoryFilters.anio)) return false;
+    if (inventoryFilters.minPrecio && precio < Number(inventoryFilters.minPrecio)) return false;
+    if (inventoryFilters.maxPrecio && precio > Number(inventoryFilters.maxPrecio)) return false;
+    if (inventoryFilters.conCostos === "si" && !hasCostos) return false;
+    if (inventoryFilters.conCostos === "no" && hasCostos) return false;
+    if (inventoryFilters.conVenta === "si" && !hasVenta) return false;
+    if (inventoryFilters.conVenta === "no" && hasVenta) return false;
+    return true;
+  });
 
   const isAdmin = authUser?.role === "admin";
 
@@ -1759,6 +1834,44 @@ const formatMoney = (value, currency = "USD") => {
             ))}
         </section>
       )}
+
+      <section className="panel profit-panel">
+        <div className="panel-title-row">
+          <h2>Reporte de inventario</h2>
+          <div className="report-actions">
+            <button className="btn btn-primary" type="button" onClick={() => handleExportInventoryReport(EXPORT_FORMATS.XLSX)}>
+              Exportar Excel
+            </button>
+            <button className="btn btn-secondary" type="button" onClick={() => handleExportInventoryReport(EXPORT_FORMATS.PDF)}>
+              Exportar PDF
+            </button>
+          </div>
+        </div>
+        <form className="financial-filters" onSubmit={(event) => event.preventDefault()}>
+          <label className="filter-field"><span>Estado</span><select className="input-control" name="estado" value={inventoryFilters.estado} onChange={handleInventoryFilterChange}><option value="">Todos</option>{ESTADOS.map((estado) => <option key={estado} value={estado}>{estadoLabel(estado)}</option>)}</select></label>
+          <label className="filter-field"><span>Marca</span><select className="input-control" name="marca" value={inventoryFilters.marca} onChange={handleInventoryFilterChange}><option value="">Todas</option>{uniqueBrands.map((marca) => <option key={marca} value={marca}>{marca}</option>)}</select></label>
+          <label className="filter-field"><span>Año</span><select className="input-control" name="anio" value={inventoryFilters.anio} onChange={handleInventoryFilterChange}><option value="">Todos</option>{uniqueYears.map((anio) => <option key={anio} value={anio}>{anio}</option>)}</select></label>
+          <label className="filter-field"><span>Precio mínimo</span><input className="input-control" type="number" name="minPrecio" value={inventoryFilters.minPrecio} onChange={handleInventoryFilterChange} /></label>
+          <label className="filter-field"><span>Precio máximo</span><input className="input-control" type="number" name="maxPrecio" value={inventoryFilters.maxPrecio} onChange={handleInventoryFilterChange} /></label>
+          <label className="filter-field"><span>Costos</span><select className="input-control" name="conCostos" value={inventoryFilters.conCostos} onChange={handleInventoryFilterChange}><option value="">Todos</option><option value="si">Con costos</option><option value="no">Sin costos</option></select></label>
+          <label className="filter-field"><span>Venta</span><select className="input-control" name="conVenta" value={inventoryFilters.conVenta} onChange={handleInventoryFilterChange}><option value="">Todos</option><option value="si">Con venta</option><option value="no">Sin venta</option></select></label>
+          <div className="financial-filter-actions"><button className="btn btn-secondary" type="button" onClick={clearInventoryFilters}>Limpiar</button></div>
+        </form>
+        <div className="table-wrapper">
+          <table className="data-table">
+            <thead><tr><th>VIN</th><th>Marca</th><th>Modelo</th><th>Año</th><th>Estado</th><th className="numeric">Precio estimado</th><th className="numeric">Total costos</th><th className="numeric">Total venta</th><th className="numeric">Ganancia real</th></tr></thead>
+            <tbody>
+              {!loadingProfitReport && advancedInventoryRows.length === 0 ? <tr><td colSpan={9} className="report-empty-cell">No hay vehículos para mostrar con los filtros actuales.</td></tr> : advancedInventoryRows.map((row) => (
+                <tr key={`inventory-${row.vehicle_id}`}>
+                  <td>{row.vin || "—"}</td><td>{row.marca || "—"}</td><td>{row.modelo || "—"}</td><td>{row.anio || "—"}</td><td><span className="status-pill">{estadoLabel(row.estado || "inventario")}</span></td>
+                  <td className="numeric">{formatMoney(row.precio_estimado)}</td><td className="numeric">{formatMoney(row.total_costos)}</td><td className="numeric">{formatMoney(row.total_venta)}</td>
+                  <td className={`numeric profit-value ${Number(row.ganancia_real || 0) >= 0 ? "profit-positive-text" : "profit-negative-text"}`}>{formatMoney(row.ganancia_real)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
 
     <section className="panel profit-panel">
         <div className="panel-title-row">
