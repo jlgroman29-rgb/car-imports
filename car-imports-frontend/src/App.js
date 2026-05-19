@@ -838,6 +838,31 @@ const formatMoney = (value, currency = "USD") => {
   })}`;
 };
 
+
+
+  const normalizeDateInput = (value) => {
+    if (!value) return "";
+
+    const text = String(value).trim();
+
+    if (/^\d{4}-\d{2}-\d{2}/.test(text)) {
+      return text.slice(0, 10);
+    }
+
+    if (/^\d{2}\/\d{2}\/\d{4}$/.test(text)) {
+      const [day, month, year] = text.split("/");
+      return `${year}-${month}-${day}`;
+    }
+
+    const date = new Date(text);
+    if (Number.isNaN(date.getTime())) return "";
+
+    const year = date.getUTCFullYear();
+    const month = String(date.getUTCMonth() + 1).padStart(2, "0");
+    const day = String(date.getUTCDate()).padStart(2, "0");
+
+    return `${year}-${month}-${day}`;
+  };
   const toDateInputValue = (value) => {
     if (!value) return "";
 
