@@ -262,6 +262,37 @@ def require_admin_user():
     return user, None
 
 
+
+MIN_ALLOWED_RECORD_YEAR = 2000
+
+
+def validate_transaction_date(value, field_name="fecha"):
+    if value in (None, ""):
+        return None, None
+
+    try:
+        parsed_date = datetime.strptime(value, "%Y-%m-%d").date()
+    except ValueError:
+        return None, ({
+            "status": "error",
+            "message": f"{field_name} debe tener formato YYYY-MM-DD"
+        }, 400)
+
+    today = datetime.utcnow().date()
+    if parsed_date > today:
+        return None, ({
+            "status": "error",
+            "message": f"{field_name} no puede ser una fecha futura"
+        }, 400)
+
+    if parsed_date.year < MIN_ALLOWED_RECORD_YEAR:
+        return None, ({
+            "status": "error",
+            "message": f"{field_name} debe estar entre {MIN_ALLOWED_RECORD_YEAR} y {today.year}"
+        }, 400)
+
+    return parsed_date, None
+
 def parse_date_filter(value, field_name):
     if not value:
         return None, None
@@ -1179,6 +1210,11 @@ def create_sale():
         moneda = data.get("moneda", "DOP")
         tasa_cambio = data.get("tasa_cambio")
         fecha_venta = data.get("fecha_venta", data.get("fecha"))
+        _, date_error = validate_transaction_date(fecha_venta, "fecha_venta")
+        if date_error:
+            conn.close()
+            return date_error
+
         nombre_cliente = data.get("nombre_cliente")
         telefono_cliente = data.get("telefono_cliente")
         metodo_pago = data.get("metodo_pago")
@@ -1582,6 +1618,17 @@ def patch_sale(id):
         price_column = get_sales_price_column(sales_columns)
         date_column = get_sales_date_column(sales_columns)
 
+        if "fecha_venta" in data:
+            _, date_error = validate_transaction_date(data.get("fecha_venta"), "fecha_venta")
+            if date_error:
+                conn.close()
+                return date_error
+        elif "fecha" in data:
+            _, date_error = validate_transaction_date(data.get("fecha"), "fecha")
+            if date_error:
+                conn.close()
+                return date_error
+
         fields = []
         values = []
 
@@ -1731,6 +1778,10 @@ def create_cost():
         fecha = data.get("fecha")
         descripcion = data.get("descripcion")
 
+        _, date_error = validate_transaction_date(fecha, "fecha")
+        if date_error:
+            return date_error
+
         if vehicle_id is None or not tipo or monto is None:
             return {
                 "status": "error",
@@ -1857,6 +1908,11 @@ def patch_cost(id):
 
         fields = []
         values = []
+
+        if "fecha" in data:
+            _, date_error = validate_transaction_date(data.get("fecha"), "fecha")
+            if date_error:
+                return date_error
 
         allowed = ["tipo", "monto", "moneda", "tasa_cambio", "fecha", "descripcion"]
 

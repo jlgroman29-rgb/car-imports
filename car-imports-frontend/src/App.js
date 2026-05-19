@@ -7,6 +7,7 @@ import { buildReceiptHtml } from "./receiptTemplate";
 const API_BASE_URL = "http://127.0.0.1:5000";
 const AUTH_TOKEN_KEY = "car_imports_access_token";
 const USER_ROLES = ["user", "admin"];
+const TODAY_DATE = new Date().toISOString().split("T")[0];
 
 
 const ESTADOS = [
@@ -1717,7 +1718,7 @@ const formatMoney = (value, currency = "USD") => {
               value={costForm.tasa_cambio}
               onChange={handleCostChange}
             />
-            <input className="input-control" name="fecha" type="date" value={costForm.fecha} onChange={handleCostChange} />
+            <input className="input-control" name="fecha" type="date" max={TODAY_DATE} value={costForm.fecha} onChange={handleCostChange} />
             <input
               className="input-control"
               name="descripcion"
@@ -1795,7 +1796,7 @@ const formatMoney = (value, currency = "USD") => {
             <input className="input-control" name="precio_venta" type="number" placeholder="Precio venta" value={saleForm.precio_venta} onChange={handleSaleChange} required />
             <input className="input-control" name="moneda" placeholder="Moneda (USD, DOP)" value={saleForm.moneda} onChange={handleSaleChange} />
             <input className="input-control" name="tasa_cambio" type="number" placeholder="Tasa de cambio" value={saleForm.tasa_cambio} onChange={handleSaleChange} />
-            <input className="input-control" name="fecha_venta" type="date" value={saleForm.fecha_venta} onChange={handleSaleChange} />
+            <input className="input-control" name="fecha_venta" type="date" max={TODAY_DATE} value={saleForm.fecha_venta} onChange={handleSaleChange} />
             <input className="input-control" name="metodo_pago" placeholder="Método de pago" value={saleForm.metodo_pago} onChange={handleSaleChange} />
             <input className="input-control" name="notas" placeholder="Notas" value={saleForm.notas} onChange={handleSaleChange} />
             <div className="cost-form-actions">
