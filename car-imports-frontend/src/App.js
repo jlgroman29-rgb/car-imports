@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
-import { BarChart, Bar, XAxis, YAxis, Tooltip, Cell, ResponsiveContainer } from "recharts";
+import { BarChart, Bar, XAxis, YAxis, Tooltip, Cell, ResponsiveContainer, PieChart, Pie, CartesianGrid } from "recharts";
 import "./App.css";
 import { exportCostReport, exportFinancialReport, EXPORT_FORMATS } from "./reportExport";
 import { buildReceiptHtml } from "./receiptTemplate";
@@ -1145,6 +1145,54 @@ const formatMoney = (value, currency = "USD") => {
     { title: "Vehículos con pérdida", value: profitTotals.conPerdida, variant: "negative" },
     { title: "Vehículos con ganancia", value: profitTotals.conGanancia, variant: "positive" }
   ];
+  const monthKeyFromRow = (row) => {
+    const rawDate = row.fecha_venta || row.sale_date || row.fecha || row.created_at;
+    const normalized = normalizeDateInput(rawDate);
+    if (!normalized) return "Sin fecha";
+    return normalized.slice(0, 7);
+  };
+
+  const monthlySalesData = Object.values(
+    profitRows.reduce((acc, row) => {
+      const month = monthKeyFromRow(row);
+      acc[month] = acc[month] || { month, totalVentas: 0 };
+      acc[month].totalVentas += Number(row.total_venta || 0);
+      return acc;
+    }, {})
+  ).sort((a, b) => a.month.localeCompare(b.month));
+
+  const monthlyProfitData = Object.values(
+    profitRows.reduce((acc, row) => {
+      const month = monthKeyFromRow(row);
+      acc[month] = acc[month] || { month, ganancia: 0 };
+      acc[month].ganancia += Number(row.ganancia_real || 0);
+      return acc;
+    }, {})
+  ).sort((a, b) => a.month.localeCompare(b.month));
+
+  const costByTypeData = Object.values(
+    reportRows.reduce((acc, row) => {
+      (row.costs || []).forEach((cost) => {
+        const tipo = cost.tipo || "otros";
+        acc[tipo] = acc[tipo] || { tipo, monto: 0 };
+        acc[tipo].monto += Number(cost.monto || 0);
+      });
+      return acc;
+    }, {})
+  ).sort((a, b) => b.monto - a.monto);
+
+  const topProfitVehicles = [...profitRows]
+    .sort((a, b) => Number(b.ganancia_real || 0) - Number(a.ganancia_real || 0))
+    .slice(0, 5);
+
+  const topLossVehicles = [...profitRows]
+    .sort((a, b) => Number(a.ganancia_real || 0) - Number(b.ganancia_real || 0))
+    .slice(0, 5);
+
+  const inventoryByStatusData = ESTADOS.map((estado) => ({
+    estado,
+    cantidad: profitRows.filter((row) => row.estado === estado).length
+  })).filter((row) => row.cantidad > 0);
   const uniqueBrands = [...new Set(profitRows.map((row) => row.marca).filter(Boolean))].sort((a, b) =>
     a.localeCompare(b, "es")
   );
@@ -1940,6 +1988,95 @@ const formatMoney = (value, currency = "USD") => {
               <p className="metric-value">{card.value}</p>
             </article>
           ))}
+        </div>
+        <div className="profit-detail-heading">
+          <h3>Analytics</h3>
+          <p className="panel-subtitle">Visual ejecutivo basado en el reporte cargado.</p>
+        </div>
+        <div className="metrics-grid">
+          <article className="metric-card metric-neutral chart-panel">
+            <h4>Ventas por mes</h4>
+            <div className="chart-wrap">
+              <ResponsiveContainer width="100%" height={240}>
+                <BarChart data={monthlySalesData}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="month" />
+                  <YAxis />
+                  <Tooltip formatter={(value) => [formatMoney(value), "Ventas"]} />
+                  <Bar dataKey="totalVentas" fill="#2563eb" radius={[8, 8, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </article>
+          <article className="metric-card metric-neutral chart-panel">
+            <h4>Ganancia por mes</h4>
+            <div className="chart-wrap">
+              <ResponsiveContainer width="100%" height={240}>
+                <BarChart data={monthlyProfitData}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="month" />
+                  <YAxis />
+                  <Tooltip formatter={(value) => [formatMoney(value), "Ganancia"]} />
+                  <Bar dataKey="ganancia" radius={[8, 8, 0, 0]}>
+                    {monthlyProfitData.map((item) => (
+                      <Cell key={`profit-month-${item.month}`} fill={item.ganancia >= 0 ? "#16a34a" : "#dc2626"} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </article>
+          <article className="metric-card metric-neutral chart-panel">
+            <h4>Costos por tipo</h4>
+            {costByTypeData.length === 0 ? (
+              <p className="panel-subtitle">Genera “Reporte de costos por vehículo” para visualizar este gráfico.</p>
+            ) : (
+              <div className="chart-wrap">
+                <ResponsiveContainer width="100%" height={240}>
+                  <BarChart data={costByTypeData}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="tipo" />
+                    <YAxis />
+                    <Tooltip formatter={(value) => [formatMoney(value), "Costos"]} />
+                    <Bar dataKey="monto" fill="#f97316" radius={[8, 8, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            )}
+          </article>
+          <article className="metric-card metric-neutral chart-panel">
+            <h4>Inventario por estado</h4>
+            <div className="chart-wrap">
+              <ResponsiveContainer width="100%" height={240}>
+                <PieChart>
+                  <Pie data={inventoryByStatusData} dataKey="cantidad" nameKey="estado" outerRadius={80} label={(item) => estadoLabel(item.estado)}>
+                    {inventoryByStatusData.map((entry, index) => (
+                      <Cell key={`status-pie-${index}`} fill={coloresEstado[entry.estado] || "#8884d8"} />
+                    ))}
+                  </Pie>
+                  <Tooltip formatter={(value) => [value, "Cantidad"]} />
+                </PieChart>
+              </ResponsiveContainer>
+            </div>
+          </article>
+        </div>
+        <div className="users-admin-grid">
+          <article className="panel">
+            <h4>Top 5 vehículos con mayor ganancia</h4>
+            <ul>
+              {topProfitVehicles.map((row) => (
+                <li key={`top-profit-${row.vehicle_id}`}>{row.vin || `${row.marca || ""} ${row.modelo || ""}`}: {formatMoney(row.ganancia_real)}</li>
+              ))}
+            </ul>
+          </article>
+          <article className="panel">
+            <h4>Top 5 vehículos con pérdida</h4>
+            <ul>
+              {topLossVehicles.map((row) => (
+                <li key={`top-loss-${row.vehicle_id}`}>{row.vin || `${row.marca || ""} ${row.modelo || ""}`}: {formatMoney(row.ganancia_real)}</li>
+              ))}
+            </ul>
+          </article>
         </div>
 
         <div className="profit-detail-heading">
