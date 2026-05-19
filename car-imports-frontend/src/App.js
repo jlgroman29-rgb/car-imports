@@ -128,6 +128,7 @@ function App() {
   const [loadingReport, setLoadingReport] = useState(false);
   const [reportVisible, setReportVisible] = useState(false);
   const [exportingReport, setExportingReport] = useState(false);
+  const [loadingCostAnalytics, setLoadingCostAnalytics] = useState(false);
   const [exportingFinancialReport, setExportingFinancialReport] = useState(false);
   const [salesByVehicleId, setSalesByVehicleId] = useState({});
   const [profitRows, setProfitRows] = useState([]);
@@ -698,6 +699,28 @@ function App() {
   }, [authStatus]);
 
   useEffect(() => {
+    if (authStatus !== "authenticated") {
+      return;
+    }
+
+    const syncCostAnalytics = async () => {
+      setLoadingCostAnalytics(true);
+      try {
+        const rows = await fetchCostReportRows();
+        setReportRows(rows);
+      } catch (error) {
+        console.error("Error cargando datos de costos para analytics:", error);
+      } finally {
+        setLoadingCostAnalytics(false);
+      }
+    };
+
+    syncCostAnalytics();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authStatus, vehicles]);
+
+  useEffect(() => {
+
     if (authStatus !== "authenticated" || authUser?.role !== "admin") {
       return;
     }
@@ -924,35 +947,38 @@ const formatMoney = (value, currency = "USD") => {
     });
   };
 
-  const loadReport = async () => {
+  const fetchCostReportRows = async () => {
     if (!vehicles.length) {
-      setReportRows([]);
-      setReportVisible(true);
-      return;
+      return [];
     }
 
+    const rows = await Promise.all(
+      vehicles.map(async (vehicle) => {
+        const [costsResponse, totalResponse] = await Promise.all([
+          fetch(`${API_BASE_URL}/vehicles/${vehicle.id}/costs`),
+          fetch(`${API_BASE_URL}/vehicles/${vehicle.id}/costs/total`)
+        ]);
+
+        const costsPayload = await costsResponse.json();
+        const totalPayload = await totalResponse.json();
+
+        return {
+          vehicle,
+          costs: costsPayload.data || [],
+          totalCost: totalPayload.total_cost || 0
+        };
+      })
+    );
+
+    return rows;
+  };
+
+  const loadReport = async () => {
     setLoadingReport(true);
     setReportVisible(true);
 
     try {
-      const rows = await Promise.all(
-        vehicles.map(async (vehicle) => {
-          const [costsResponse, totalResponse] = await Promise.all([
-            fetch(`${API_BASE_URL}/vehicles/${vehicle.id}/costs`),
-            fetch(`${API_BASE_URL}/vehicles/${vehicle.id}/costs/total`)
-          ]);
-
-          const costsPayload = await costsResponse.json();
-          const totalPayload = await totalResponse.json();
-
-          return {
-            vehicle,
-            costs: costsPayload.data || [],
-            totalCost: totalPayload.total_cost || 0
-          };
-        })
-      );
-
+      const rows = await fetchCostReportRows();
       setReportRows(rows);
     } catch (error) {
       console.error("Error cargando reporte de costos:", error);
@@ -961,6 +987,7 @@ const formatMoney = (value, currency = "USD") => {
       setLoadingReport(false);
     }
   };
+
 
   const handleExportReport = (format) => {
     if (loadingReport) {
@@ -1675,8 +1702,8 @@ const formatMoney = (value, currency = "USD") => {
 
           <div className="panel-title-row">
             <h2>Listado de vehículos</h2>
-            <button className="btn btn-secondary" type="button" onClick={loadReport}>
-              Ver reporte de costos
+            <button className="btn btn-secondary" type="button" onClick={loadReport} disabled={loadingCostAnalytics}>
+              {loadingCostAnalytics ? "Actualizando costos..." : "Ver reporte de costos"}
             </button>
           </div>
         </section>
@@ -1776,7 +1803,7 @@ const formatMoney = (value, currency = "USD") => {
             </div>
           </div>
 
-          {!loadingReport && reportRows.length === 0 && <p className="report-empty">No hay vehículos para mostrar.</p>}
+          {!loadingReport && reportRows.length === 0 && <p className="report-empty">Sin datos de costos.</p>}
 
           {!loadingReport &&
             reportRows.map((row) => (
