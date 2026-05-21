@@ -52,6 +52,7 @@ function App() {
   const [loginError, setLoginError] = useState("");
   const [loginLoading, setLoginLoading] = useState(false);
   const [showUsersAdmin, setShowUsersAdmin] = useState(false);
+  const [activeTab, setActiveTab] = useState("dashboard");
   const [users, setUsers] = useState([]);
   const [usersLoading, setUsersLoading] = useState(false);
   const [usersMessage, setUsersMessage] = useState({ type: "", text: "" });
@@ -1267,6 +1268,16 @@ const formatMoney = (value, currency = "USD") => {
   });
 
   const isAdmin = authUser?.role === "admin";
+  const tabs = [
+    { key: "dashboard", label: "Dashboard" },
+    { key: "vehiculos", label: "Vehículos" },
+    { key: "costos", label: "Costos" },
+    { key: "ventas", label: "Ventas" },
+    { key: "reportes", label: "Reportes" },
+    { key: "analytics", label: "Analytics" },
+    { key: "usuarios", label: "Usuarios", adminOnly: true },
+    { key: "auditoria", label: "Auditoría", adminOnly: true }
+  ];
 
   const metricCards = [
     { title: "Total vehículos", value: vehicles.length, icon: "🚗", variant: "neutral" },
@@ -1353,7 +1364,27 @@ const formatMoney = (value, currency = "USD") => {
           </button>
         </div>
       </header>
+      <nav className="tabs-nav" aria-label="Navegación principal">
+        {tabs
+          .filter((tab) => !tab.adminOnly || isAdmin)
+          .map((tab) => (
+            <button
+              key={tab.key}
+              type="button"
+              className={`tab-btn ${activeTab === tab.key ? "active" : ""}`}
+              onClick={() => {
+                setActiveTab(tab.key);
+                if (tab.key === "usuarios" && isAdmin) {
+                  setShowUsersAdmin(true);
+                }
+              }}
+            >
+              {tab.label}
+            </button>
+          ))}
+      </nav>
 
+      {activeTab === "dashboard" && (
       <section className="card-section">
         <div className="metrics-grid">
           {metricCards.map((card) => (
@@ -1395,8 +1426,9 @@ const formatMoney = (value, currency = "USD") => {
           </div>
         </div>
       </section>
+      )}
 
-      {isAdmin && showUsersAdmin && (
+      {activeTab === "usuarios" && isAdmin && showUsersAdmin && (
         <section className="panel users-admin-panel">
           <div className="panel-title-row">
             <div>
@@ -1561,6 +1593,7 @@ const formatMoney = (value, currency = "USD") => {
         </section>
       )}
 
+      {activeTab === "vehiculos" && (
       <section className="panel">
         <h2>{editingId ? "Editar vehículo" : "Registrar vehículo"}</h2>
         <form onSubmit={handleSubmit} className="form-grid">
@@ -1588,7 +1621,9 @@ const formatMoney = (value, currency = "USD") => {
           </button>
         </form>
       </section>
+      )}
 
+      {activeTab === "vehiculos" && (
       <section className="panel">
         <div className="panel-title-row">
           <h2>Listado de vehículos</h2>
@@ -1673,8 +1708,9 @@ const formatMoney = (value, currency = "USD") => {
           </table>
         </div>
       </section>
+      )}
 
-      {selectedVehicle && (
+      {activeTab === "costos" && selectedVehicle && (
         <section className="panel costs-panel">
           <div className="panel-title-row">
             <h2>
@@ -1783,7 +1819,7 @@ const formatMoney = (value, currency = "USD") => {
         </section>
       )}
 
-      {selectedSalesVehicle && (
+      {activeTab === "ventas" && selectedSalesVehicle && (
         <section className="panel costs-panel">
           <div className="panel-title-row">
             <h2>
@@ -1852,7 +1888,7 @@ const formatMoney = (value, currency = "USD") => {
         </section>
       )}
 
-      {reportVisible && (
+      {activeTab === "reportes" && reportVisible && (
         <section className="panel report-panel">
           <div className="panel-title-row">
             <h2>Reporte de costos por vehículo</h2>
@@ -1936,6 +1972,7 @@ const formatMoney = (value, currency = "USD") => {
         </section>
       )}
 
+      {activeTab === "reportes" && (
       <section className="panel profit-panel">
         <div className="panel-title-row">
           <h2>Reporte de inventario</h2>
@@ -1973,7 +2010,9 @@ const formatMoney = (value, currency = "USD") => {
           </table>
         </div>
       </section>
+      )}
 
+    {activeTab === "analytics" && (
     <section className="panel profit-panel">
         <div className="panel-title-row">
           <div>
@@ -2169,6 +2208,21 @@ const formatMoney = (value, currency = "USD") => {
           </table>
         </div>
       </section>
+      )}
+
+      {activeTab === "usuarios" && isAdmin && !showUsersAdmin && (
+        <section className="panel">
+          <h2>Usuarios</h2>
+          <p className="panel-subtitle">Usa el botón “Administrar usuarios” del encabezado para abrir el módulo.</p>
+        </section>
+      )}
+
+      {activeTab === "auditoria" && (
+        <section className="panel">
+          <h2>Auditoría</h2>
+          <p className="panel-subtitle">Módulo reservado para auditoría. Conserva la lógica actual sin cambios.</p>
+        </section>
+      )}
 
     </div>
   );
