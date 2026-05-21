@@ -262,6 +262,55 @@ def require_admin_user():
     return user, None
 
 
+def ensure_audit_logs_table(conn):
+    cur = conn.cursor()
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS audit_logs (
+            id SERIAL PRIMARY KEY,
+            user_id INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
+            action TEXT NOT NULL,
+            entity_type TEXT NOT NULL,
+            entity_id TEXT NOT NULL,
+            details JSONB,
+            created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+    """)
+    conn.commit()
+    cur.close()
+
+
+def get_optional_authenticated_user():
+    token = get_bearer_token()
+    if not token:
+        return None
+
+    payload, token_error = decode_auth_token(token)
+    if token_error:
+        return None
+
+    try:
+        user_id = int(payload.get("sub"))
+    except (TypeError, ValueError):
+        return None
+
+    return user_id
+
+
+def log_audit(conn, action, entity_type, entity_id, details=None):
+    ensure_users_table(conn)
+    ensure_audit_logs_table(conn)
+    user_id = get_optional_authenticated_user()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        INSERT INTO audit_logs (user_id, action, entity_type, entity_id, details)
+        VALUES (%s, %s, %s, %s, %s::jsonb);
+        """,
+        (user_id, action, entity_type, str(entity_id), json.dumps(details or {}))
+    )
+    cur.close()
+
+
 
 MIN_ALLOWED_RECORD_YEAR = 2000
 
@@ -595,6 +644,29 @@ def list_users():
         return {"error": str(e)}, 500
 
 
+@app.route("/audit-logs", methods=["GET"])
+def list_audit_logs():
+    try:
+        import psycopg2.extras
+
+        conn = get_connection()
+        ensure_users_table(conn)
+        ensure_audit_logs_table(conn)
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute("""
+            SELECT id, user_id, action, entity_type, entity_id, details, created_at
+            FROM audit_logs
+            ORDER BY created_at DESC, id DESC
+            LIMIT 500;
+        """)
+        rows = cur.fetchall()
+        cur.close()
+        conn.close()
+        return {"status": "OK", "data": rows}
+    except Exception as e:
+        return {"error": str(e)}, 500
+
+
 @app.route("/users", methods=["POST"])
 def create_user():
     admin_user, error_response = require_admin_user()
@@ -635,6 +707,7 @@ def create_user():
             RETURNING id, email, name, role, is_active, created_at, updated_at;
         """, (email, name, role, generate_password_hash(password), is_active))
         user = cur.fetchone()
+        log_audit(conn, "create", "user", user["id"], {"payload": {"email": email, "name": name, "role": role, "is_active": is_active}})
         conn.commit()
 
         cur.close()
@@ -733,6 +806,8 @@ def update_user(user_id):
                 "message": "Usuario no encontrado"
             }, 404
 
+        action = "deactivate" if "is_active" in data and user["is_active"] is False else "update"
+        log_audit(conn, action, "user", user_id, {"payload": data})
         conn.commit()
         cur.close()
         conn.close()
@@ -943,6 +1018,7 @@ def create_vehicle():
         ))
 
         vehicle_id = cur.fetchone()[0]
+        log_audit(conn, "create", "vehicle", vehicle_id, {"payload": data})
 
         conn.commit()
         cur.close()
@@ -979,6 +1055,12 @@ def update_vehicle(id):
             query, (data["marca"], data["modelo"],
                     data["anio"], data["estado"], id)
         )
+        if cur.rowcount == 0:
+            conn.commit()
+            cur.close()
+            conn.close()
+            return {"error": "Vehículo no encontrado"}, 404
+        log_audit(conn, "update", "vehicle", id, {"payload": data})
 
         conn.commit()
         cur.close()
@@ -1022,6 +1104,8 @@ def delete_vehicle(id):
 
         cur.execute("DELETE FROM vehicles WHERE id = %s RETURNING id;", (id,))
         deleted = cur.fetchone()
+        if deleted is not None:
+            log_audit(conn, "delete", "vehicle", id, {"deleted_id": id})
 
         conn.commit()
         cur.close()
@@ -1098,6 +1182,8 @@ def patch_vehicle(id):
 
         cur.execute(query, tuple(values))
         updated = cur.fetchone()
+        if updated is not None:
+            log_audit(conn, "update", "vehicle", id, {"payload": data})
 
         conn.commit()
         cur.close()
@@ -1279,6 +1365,7 @@ def create_sale():
 
         cur.execute(query, tuple(values))
         new_id = cur.fetchone()[0]
+        log_audit(conn, "create", "sale", new_id, {"payload": data})
         
         # Regla de negocio: cuando se registra una venta,
         # el vehículo debe salir del inventario disponible.
@@ -1691,6 +1778,8 @@ def patch_sale(id):
         """
         cur.execute(query, tuple(values))
         updated = cur.fetchone()
+        if updated is not None:
+            log_audit(conn, "update", "sale", id, {"payload": data})
 
         conn.commit()
         cur.close()
@@ -1743,6 +1832,7 @@ def delete_sale(id):
             return {"status": "error", "message": "Venta no encontrada"}, 404
 
         vehicle_id = deleted[1]
+        log_audit(conn, "delete", "sale", id, {"vehicle_id": vehicle_id})
 
         # Al eliminar la venta, el vehículo vuelve a estar disponible.
         cur.execute("""
@@ -1808,6 +1898,7 @@ def create_cost():
         ))
 
         new_id = cur.fetchone()[0]
+        log_audit(conn, "create", "cost", new_id, {"payload": data})
 
         conn.commit()
         cur.close()
@@ -1881,6 +1972,8 @@ def delete_cost(id):
 
         cur.execute("DELETE FROM costs WHERE id = %s RETURNING id;", (id,))
         deleted = cur.fetchone()
+        if deleted is not None:
+            log_audit(conn, "delete", "cost", id, {"deleted_id": id})
 
         conn.commit()
         cur.close()
@@ -1947,6 +2040,8 @@ def patch_cost(id):
 
         cur.execute(query, tuple(values))
         updated = cur.fetchone()
+        if updated is not None:
+            log_audit(conn, "update", "cost", id, {"payload": data})
 
         conn.commit()
         cur.close()
