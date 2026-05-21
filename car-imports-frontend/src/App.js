@@ -45,6 +45,7 @@ const coloresEstado = {
 const estadoLabel = (estado) => estado.replaceAll("_", " ");
 function App() {
   const initialDataLoadedRef = useRef(false);
+  const costReportAutoRequestedRef = useRef(false);
   const [authStatus, setAuthStatus] = useState("checking");
   const [authUser, setAuthUser] = useState(null);
   const [authExpiresAt, setAuthExpiresAt] = useState(null);
@@ -187,6 +188,8 @@ function App() {
     setSales([]);
     setProfitRows([]);
     setReportRows([]);
+    setReportVisible(false);
+    costReportAutoRequestedRef.current = false;
     setUsers([]);
     setShowUsersAdmin(false);
     setUsersMessage({ type: "", text: "" });
@@ -724,6 +727,22 @@ function App() {
   }, [authStatus, vehicles]);
 
   useEffect(() => {
+    if (authStatus !== "authenticated" || activeTab !== "reportes") {
+      return;
+    }
+
+    setReportVisible(true);
+
+    if (reportRows.length > 0 || loadingReport || loadingCostAnalytics || costReportAutoRequestedRef.current) {
+      return;
+    }
+
+    costReportAutoRequestedRef.current = true;
+    loadReport({ showAlert: false });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab, authStatus, loadingReport, loadingCostAnalytics, reportRows.length]);
+
+  useEffect(() => {
 
     if (authStatus !== "authenticated" || authUser?.role !== "admin") {
       return;
@@ -1048,7 +1067,7 @@ const formatMoney = (value, currency = "USD") => {
     return rows;
   };
 
-  const loadReport = async () => {
+  const loadReport = async ({ showAlert = true } = {}) => {
     setLoadingReport(true);
     setReportVisible(true);
 
@@ -1057,15 +1076,19 @@ const formatMoney = (value, currency = "USD") => {
       setReportRows(rows);
     } catch (error) {
       console.error("Error cargando reporte de costos:", error);
-      alert("No se pudo cargar el reporte de costos. Intenta nuevamente.");
+      if (showAlert) {
+        alert("No se pudo cargar el reporte de costos. Intenta nuevamente.");
+      }
     } finally {
       setLoadingReport(false);
     }
   };
 
+  const isCostReportLoading = loadingReport || loadingCostAnalytics;
+
 
   const handleExportReport = (format) => {
-    if (loadingReport) {
+    if (isCostReportLoading) {
       return;
     }
 
@@ -1894,8 +1917,8 @@ const formatMoney = (value, currency = "USD") => {
 
           <div className="panel-title-row">
             <h2>Listado de vehículos</h2>
-            <button className="btn btn-secondary" type="button" onClick={loadReport} disabled={loadingCostAnalytics}>
-              {loadingCostAnalytics ? "Actualizando costos..." : "Ver reporte de costos"}
+            <button className="btn btn-secondary" type="button" onClick={() => loadReport()} disabled={isCostReportLoading}>
+              {isCostReportLoading ? "Actualizando reporte..." : "Generar/Actualizar reporte"}
             </button>
           </div>
             </>
@@ -2011,12 +2034,20 @@ const formatMoney = (value, currency = "USD") => {
           <div className="panel-title-row">
             <h2>Reporte de costos por vehículo</h2>
             <div className="report-actions">
-              {loadingReport ? <p className="cost-total">Cargando reporte...</p> : null}
+              {isCostReportLoading ? <p className="cost-total">Cargando reporte...</p> : null}
+              <button
+                className="btn btn-secondary"
+                type="button"
+                onClick={() => loadReport()}
+                disabled={isCostReportLoading}
+              >
+                {isCostReportLoading ? "Actualizando..." : "Generar/Actualizar reporte"}
+              </button>
               <button
                 className="btn btn-primary"
                 type="button"
                 onClick={() => handleExportReport(EXPORT_FORMATS.XLSX)}
-                disabled={loadingReport || exportingReport || reportRows.length === 0}
+                disabled={isCostReportLoading || exportingReport || reportRows.length === 0}
               >
                 {exportingReport ? "Exportando..." : "Exportar Excel (.xlsx)"}
               </button>
@@ -2024,16 +2055,18 @@ const formatMoney = (value, currency = "USD") => {
                 className="btn btn-secondary"
                 type="button"
                 onClick={() => handleExportReport(EXPORT_FORMATS.PDF)}
-                disabled={loadingReport || exportingReport || reportRows.length === 0}
+                disabled={isCostReportLoading || exportingReport || reportRows.length === 0}
               >
                 {exportingReport ? "Exportando..." : "Exportar PDF"}
               </button>
             </div>
           </div>
 
-          {!loadingReport && reportRows.length === 0 && <p className="report-empty">Sin datos de costos.</p>}
+          {!isCostReportLoading && reportRows.length === 0 && (
+            <p className="report-empty">No hay datos de costos para mostrar en este momento.</p>
+          )}
 
-          {!loadingReport &&
+          {!isCostReportLoading &&
             reportRows.map((row) => (
               <article key={row.vehicle.id} className="vehicle-report-card">
                 <header className="vehicle-report-header">
