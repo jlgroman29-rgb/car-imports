@@ -1,3 +1,5 @@
+import { COMPANY_BRAND } from "./branding";
+
 const escapeHtml = (value) =>
   String(value ?? "")
     .replaceAll("&", "&amp;")
@@ -45,14 +47,7 @@ export const buildReceiptHtml = ({ vehicle, sale, estadoLabel }) => {
   const exchangeRateLabel = sale.tasa_cambio ? Number(sale.tasa_cambio).toFixed(2) : "—";
   const saleDate = sale.fecha_venta || sale.fecha;
 
-  const company = {
-    name: "Minier Castillo Auto Import S.R.L",
-    address: "Calle Francisco Segura y Sandoval No. 110, Los Mina",
-    phone: "809-596-1345",
-    rnc: "130-41028-3",
-    city: "Santo Domingo",
-    logo: "/logo-minier-1.png"
-  };
+  const company = COMPANY_BRAND;
 
   return `<!DOCTYPE html>
 <html lang="es">

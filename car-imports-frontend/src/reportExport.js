@@ -1,3 +1,5 @@
+import { COMPANY_BRAND, getCompanyLogoUrl } from "./branding";
+
 const EXPORT_FORMATS = {
   XLSX: "xlsx",
   PDF: "pdf"
@@ -510,6 +512,34 @@ const formatAmount = (value) =>
     maximumFractionDigits: 2
   }).format(sanitizeNumber(value));
 
+const pdfBrandStyles = `
+    .brand-report-header { display: flex; justify-content: space-between; gap: 18px; align-items: flex-start; border-bottom: 3px solid #1f4ed8; padding-bottom: 14px; margin-bottom: 20px; }
+    .brand-report-left { display: flex; align-items: center; gap: 14px; }
+    .brand-report-logo { width: 82px; height: 82px; object-fit: contain; }
+    .brand-report-kicker { margin: 0 0 4px; color: #1f4ed8; font-size: 11px; font-weight: 700; text-transform: uppercase; }
+    .brand-report-header h1 { margin: 0 0 4px; color: #111827; font-size: 20px; }
+    .brand-report-header p { margin: 2px 0; color: #374151; font-size: 12px; }
+    .brand-report-title { text-align: right; min-width: 220px; }
+    .brand-report-title h2 { margin: 0 0 8px; color: #1f4ed8; font-size: 22px; }
+`;
+
+const buildPdfBrandHeader = ({ title, meta }) => `
+  <header class="brand-report-header">
+    <div class="brand-report-left">
+      <img class="brand-report-logo" src="${escapeXml(getCompanyLogoUrl())}" alt="${escapeXml(COMPANY_BRAND.name)}" />
+      <div>
+        <p class="brand-report-kicker">${escapeXml(COMPANY_BRAND.subtitle)}</p>
+        <h1>${escapeXml(COMPANY_BRAND.name)}</h1>
+        <p>${escapeXml(COMPANY_BRAND.address)} | ${escapeXml(COMPANY_BRAND.city)}</p>
+        <p>Tel: ${escapeXml(COMPANY_BRAND.phone)} | RNC: ${escapeXml(COMPANY_BRAND.rnc)}</p>
+      </div>
+    </div>
+    <div class="brand-report-title">
+      <h2>${escapeXml(title)}</h2>
+      <p>${escapeXml(meta)}</p>
+    </div>
+  </header>`;
+
 const buildPdfHtml = ({ reportRows, estadoLabel }) => {
   const generatedAt = new Date().toLocaleString("es-DO");
   const vehicleCards = reportRows
@@ -566,6 +596,7 @@ const buildPdfHtml = ({ reportRows, estadoLabel }) => {
   <title>Reporte de costos por vehículo</title>
   <style>
     body { font-family: Arial, sans-serif; color: #1f2937; margin: 24px; }
+    ${pdfBrandStyles}
     h1 { margin: 0 0 6px; }
     .subtitle { color: #4b5563; margin: 0 0 18px; }
     .card { page-break-inside: avoid; border: 1px solid #d1d5db; border-radius: 10px; padding: 14px; margin-bottom: 16px; }
@@ -585,14 +616,25 @@ const buildPdfHtml = ({ reportRows, estadoLabel }) => {
   </style>
 </head>
 <body>
-  <h1>Reporte de costos por vehículo</h1>
-  <p class="subtitle">Generado: ${escapeXml(generatedAt)} | Vehículos incluidos: ${reportRows.length}</p>
+  ${buildPdfBrandHeader({
+    title: "Reporte de costos por vehículo",
+    meta: `Generado: ${generatedAt} | Vehículos incluidos: ${reportRows.length}`
+  })}
   ${vehicleCards}
 </body>
 </html>`;
 };
 
-const buildFinancialPdfHtml = ({ profitRows, profitTotals, margenPromedio, filters, estadoLabel }) => {
+const buildFinancialPdfHtml = ({
+  profitRows,
+  profitTotals,
+  margenPromedio,
+  filters,
+  estadoLabel,
+  reportTitle = "Dashboard financiero ejecutivo",
+  tableTitle = "Ganancia por vehículo",
+  emptyMessage = "No hay datos de ganancias para mostrar."
+}) => {
   const generatedAt = new Date().toLocaleString("es-DO");
   const rows = normalizeFinancialRows(profitRows, estadoLabel);
   const metrics = getFinancialSummaryRows(profitTotals, margenPromedio).map(([label, value], index) => [
@@ -625,15 +667,16 @@ const buildFinancialPdfHtml = ({ profitRows, profitTotals, margenPromedio, filte
         </tr>`
         )
         .join("")
-    : '<tr><td colspan="9" class="empty">No hay datos de ganancias para mostrar.</td></tr>';
+    : `<tr><td colspan="9" class="empty">${escapeXml(emptyMessage)}</td></tr>`;
 
   return `<!DOCTYPE html>
 <html lang="es">
 <head>
   <meta charset="utf-8" />
-  <title>Dashboard financiero ejecutivo</title>
+  <title>${escapeXml(reportTitle)}</title>
   <style>
     body { font-family: Arial, sans-serif; color: #1f2937; margin: 24px; }
+    ${pdfBrandStyles}
     h1 { margin: 0 0 6px; color: #0f172a; }
     .subtitle { color: #4b5563; margin: 0 0 18px; }
     .metrics { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin: 18px 0 22px; }
@@ -654,10 +697,12 @@ const buildFinancialPdfHtml = ({ profitRows, profitTotals, margenPromedio, filte
   </style>
 </head>
 <body>
-  <h1>Dashboard financiero ejecutivo</h1>
-  <p class="subtitle">Generado: ${escapeXml(generatedAt)} | ${escapeXml(getFinancialFilterLabel(filters))}</p>
+  ${buildPdfBrandHeader({
+    title: reportTitle,
+    meta: `Generado: ${generatedAt} | ${getFinancialFilterLabel(filters)}`
+  })}
   <section class="metrics">${metricCards}</section>
-  <h2>Ganancia por vehiculo</h2>
+  <h2>${escapeXml(tableTitle)}</h2>
   <table>
     <thead>
       <tr>
@@ -697,7 +742,17 @@ const exportReportToPdf = ({ reportRows, estadoLabel, printWindow }) => {
   printWindow.document.close();
 };
 
-const exportFinancialReportToPdf = ({ profitRows, profitTotals, margenPromedio, filters, estadoLabel, printWindow }) => {
+const exportFinancialReportToPdf = ({
+  profitRows,
+  profitTotals,
+  margenPromedio,
+  filters,
+  estadoLabel,
+  printWindow,
+  reportTitle,
+  tableTitle,
+  emptyMessage
+}) => {
   if (!printWindow) {
     throw new Error("No se pudo abrir la ventana de impresiÃ³n. Habilita los pop-ups e intÃ©ntalo de nuevo.");
   }
@@ -708,7 +763,18 @@ const exportFinancialReportToPdf = ({ profitRows, profitTotals, margenPromedio, 
   };
 
   printWindow.document.open();
-  printWindow.document.write(buildFinancialPdfHtml({ profitRows, profitTotals, margenPromedio, filters, estadoLabel }));
+  printWindow.document.write(
+    buildFinancialPdfHtml({
+      profitRows,
+      profitTotals,
+      margenPromedio,
+      filters,
+      estadoLabel,
+      reportTitle,
+      tableTitle,
+      emptyMessage
+    })
+  );
   printWindow.document.close();
 };
 
@@ -733,7 +799,10 @@ export const exportFinancialReport = ({
   margenPromedio,
   filters,
   estadoLabel,
-  printWindow = null
+  printWindow = null,
+  reportTitle,
+  tableTitle,
+  emptyMessage
 }) => {
   if (format === EXPORT_FORMATS.XLSX) {
     exportFinancialReportToXlsx({ profitRows, profitTotals, margenPromedio, filters, estadoLabel });
@@ -741,7 +810,17 @@ export const exportFinancialReport = ({
   }
 
   if (format === EXPORT_FORMATS.PDF) {
-    exportFinancialReportToPdf({ profitRows, profitTotals, margenPromedio, filters, estadoLabel, printWindow });
+    exportFinancialReportToPdf({
+      profitRows,
+      profitTotals,
+      margenPromedio,
+      filters,
+      estadoLabel,
+      printWindow,
+      reportTitle,
+      tableTitle,
+      emptyMessage
+    });
     return;
   }
 

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, Cell, ResponsiveContainer, PieChart, Pie, CartesianGrid } from "recharts";
 import "./App.css";
+import { COMPANY_BRAND } from "./branding";
 import { exportCostReport, exportFinancialReport, EXPORT_FORMATS } from "./reportExport";
 import { buildReceiptHtml } from "./receiptTemplate";
 
@@ -1142,7 +1143,9 @@ const formatMoney = (value, currency = "USD") => {
         margenPromedio,
         filters: appliedFinancialFilters,
         estadoLabel,
-        printWindow
+        printWindow,
+        reportTitle: "Dashboard financiero ejecutivo",
+        tableTitle: "Ganancia por vehículo"
       });
     } catch (error) {
       if (printWindow && !printWindow.closed) {
@@ -1182,7 +1185,10 @@ const formatMoney = (value, currency = "USD") => {
       margenPromedio: advancedInventoryRows.length ? inventoryTotals.sumaMargen / advancedInventoryRows.length : 0,
       filters: appliedFinancialFilters,
       estadoLabel,
-      printWindow
+      printWindow,
+      reportTitle: "Reporte de inventario",
+      tableTitle: "Inventario valorizado",
+      emptyMessage: "No hay vehículos para mostrar con los filtros actuales."
     });
   };
 
@@ -1363,9 +1369,10 @@ const formatMoney = (value, currency = "USD") => {
       <main className="login-shell">
         <section className="login-panel" aria-busy={authStatus === "checking"}>
           <div className="login-brand">
-            <p className="eyebrow">Car Imports Dashboard</p>
+            <img className="login-logo" src={COMPANY_BRAND.logo} alt={COMPANY_BRAND.name} />
+            <p className="eyebrow">Acceso corporativo</p>
             <h1>Acceso seguro</h1>
-            <p className="page-subtitle">Ingresa con tu usuario para ver inventario, ventas y reportes.</p>
+            <p className="page-subtitle">{COMPANY_BRAND.subtitle}</p>
           </div>
 
           {authStatus === "checking" ? (
@@ -1414,10 +1421,13 @@ const formatMoney = (value, currency = "USD") => {
   return (
     <div className="app-shell">
       <header className="page-header">
-        <div>
-          <p className="eyebrow">Car Imports Dashboard</p>
-          <h1>Inventario de Vehículos</h1>
-          <p className="page-subtitle">Gestión de inventario, estados y costos por unidad.</p>
+        <div className="brand-header">
+          <img className="brand-logo" src={COMPANY_BRAND.logo} alt={COMPANY_BRAND.name} />
+          <div>
+            <p className="eyebrow">Sistema corporativo</p>
+            <h1>{COMPANY_BRAND.name}</h1>
+            <p className="page-subtitle">{COMPANY_BRAND.subtitle}</p>
+          </div>
         </div>
         <div className="user-menu">
           <div className="user-meta">

@@ -45,6 +45,15 @@
   margin-bottom: 22px;
 }
 
+.login-logo {
+  width: 136px;
+  max-width: 70%;
+  height: auto;
+  object-fit: contain;
+  display: block;
+  margin-bottom: 16px;
+}
+
 .login-form {
   display: grid;
   gap: 14px;
@@ -88,6 +97,20 @@
   align-items: flex-start;
   gap: 16px;
   flex-wrap: wrap;
+}
+
+.brand-header {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: min(100%, 420px);
+}
+
+.brand-logo {
+  width: 74px;
+  height: 74px;
+  object-fit: contain;
+  flex: 0 0 auto;
 }
 
 .eyebrow {
@@ -481,6 +504,15 @@ h1 {
   .page-header,
   .user-menu {
     align-items: stretch;
+  }
+
+  .brand-header {
+    align-items: flex-start;
+  }
+
+  .brand-logo {
+    width: 58px;
+    height: 58px;
   }
 
   .user-menu,
