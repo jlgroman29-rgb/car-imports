@@ -374,6 +374,31 @@ h1 {
   color: var(--muted);
 }
 
+.vehicle-selector {
+  display: grid;
+  grid-template-columns: minmax(220px, 0.75fr) minmax(280px, 1.25fr);
+  gap: 12px;
+  margin-bottom: 16px;
+  align-items: end;
+}
+
+.vehicle-selector-field {
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.selection-empty {
+  border: 1px solid #bfdbfe;
+  border-radius: 10px;
+  background: #eff6ff;
+  color: #1e40af;
+  padding: 12px;
+  font-weight: 700;
+}
+
 .panel-subtitle {
   margin-top: 6px;
   color: var(--muted);
@@ -466,8 +491,13 @@ h1 {
   }
 
   .filters-row,
-  .cost-form-actions {
+  .cost-form-actions,
+  .vehicle-selector {
     width: 100%;
+  }
+
+  .vehicle-selector {
+    grid-template-columns: 1fr;
   }
 
   .btn {

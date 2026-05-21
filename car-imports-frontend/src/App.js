@@ -124,6 +124,7 @@ function App() {
   const [editingId, setEditingId] = useState(null);
   const [costs, setCosts] = useState([]);
   const [selectedVehicle, setSelectedVehicle] = useState(null);
+  const [costVehicleSearch, setCostVehicleSearch] = useState("");
   const [totalCost, setTotalCost] = useState(0);
   const [editingCostId, setEditingCostId] = useState(null);
   const [reportRows, setReportRows] = useState([]);
@@ -153,6 +154,7 @@ function App() {
     conVenta: ""
   });
   const [selectedSalesVehicle, setSelectedSalesVehicle] = useState(null);
+  const [salesVehicleSearch, setSalesVehicleSearch] = useState("");
   const [sales, setSales] = useState([]);
   const [editingSaleId, setEditingSaleId] = useState(null);
   const [saleForm, setSaleForm] = useState({
@@ -804,6 +806,52 @@ function App() {
 
     return matchSearch && matchEstado;
   });
+
+  const vehicleOptionLabel = (vehicle) =>
+    `${vehicle.marca} ${vehicle.modelo} (${vehicle.anio || "Sin anio"}) - VIN: ${vehicle.vin || "Sin VIN"}`;
+
+  const vehicleMatchesSelectorSearch = (vehicle, query) => {
+    if (!query) return true;
+
+    const normalizedQuery = query.toLowerCase();
+    return [vehicle.marca, vehicle.modelo, vehicle.anio, vehicle.vin]
+      .filter(Boolean)
+      .some((value) => String(value).toLowerCase().includes(normalizedQuery));
+  };
+
+  const handleCostVehicleSelect = (event) => {
+    const vehicle = vehicles.find((item) => String(item.id) === event.target.value);
+    setSelectedVehicle(vehicle || null);
+    resetCostForm();
+
+    if (vehicle) {
+      loadCosts(vehicle.id);
+      return;
+    }
+
+    setCosts([]);
+    setTotalCost(0);
+  };
+
+  const handleSalesVehicleSelect = (event) => {
+    const vehicle = vehicles.find((item) => String(item.id) === event.target.value);
+    setSelectedSalesVehicle(vehicle || null);
+    resetSaleForm();
+
+    if (vehicle) {
+      loadSales(vehicle.id);
+      return;
+    }
+
+    setSales([]);
+  };
+
+  const costSelectorVehicles = vehicles.filter((vehicle) =>
+    vehicleMatchesSelectorSearch(vehicle, costVehicleSearch) || vehicle.id === selectedVehicle?.id
+  );
+  const salesSelectorVehicles = vehicles.filter((vehicle) =>
+    vehicleMatchesSelectorSearch(vehicle, salesVehicleSearch) || vehicle.id === selectedSalesVehicle?.id
+  );
 
   const totalInventario = vehicles.reduce((acc, v) => acc + Number(v.precio_estimado || 0), 0);
   const disponibles = vehicles.filter((v) => v.estado === "disponible").length;
@@ -1682,6 +1730,7 @@ const formatMoney = (value, currency = "USD") => {
                         onClick={() => {
                           setSelectedVehicle(v);
                           loadCosts(v.id);
+                          setActiveTab("costos");
                         }}
                       >
                         Costos
@@ -1691,6 +1740,7 @@ const formatMoney = (value, currency = "USD") => {
                         onClick={() => {
                           setSelectedSalesVehicle(v);
                           loadSales(v.id);
+                          setActiveTab("ventas");
                         }}
                       >
                         Venta
@@ -1710,8 +1760,40 @@ const formatMoney = (value, currency = "USD") => {
       </section>
       )}
 
-      {activeTab === "costos" && selectedVehicle && (
+      {activeTab === "costos" && (
         <section className="panel costs-panel">
+          <div className="vehicle-selector">
+            <label className="vehicle-selector-field">
+              <span>Buscar vehiculo</span>
+              <input
+                className="input-control"
+                type="search"
+                placeholder="Marca, modelo, anio o VIN"
+                value={costVehicleSearch}
+                onChange={(event) => setCostVehicleSearch(event.target.value)}
+              />
+            </label>
+            <label className="vehicle-selector-field vehicle-selector-select">
+              <span>Vehiculo para costos</span>
+              <select
+                className="input-control"
+                value={selectedVehicle ? String(selectedVehicle.id) : ""}
+                onChange={handleCostVehicleSelect}
+              >
+                <option value="">Selecciona un vehiculo</option>
+                {costSelectorVehicles.map((vehicle) => (
+                  <option key={vehicle.id} value={vehicle.id}>
+                    {vehicleOptionLabel(vehicle)}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+
+          {!selectedVehicle ? (
+            <p className="selection-empty">Selecciona un vehiculo para ver y registrar sus costos.</p>
+          ) : (
+            <>
           <div className="panel-title-row">
             <h2>
               Costos de {selectedVehicle.marca} {selectedVehicle.modelo}
@@ -1816,11 +1898,45 @@ const formatMoney = (value, currency = "USD") => {
               {loadingCostAnalytics ? "Actualizando costos..." : "Ver reporte de costos"}
             </button>
           </div>
+            </>
+          )}
         </section>
       )}
 
-      {activeTab === "ventas" && selectedSalesVehicle && (
+      {activeTab === "ventas" && (
         <section className="panel costs-panel">
+          <div className="vehicle-selector">
+            <label className="vehicle-selector-field">
+              <span>Buscar vehiculo</span>
+              <input
+                className="input-control"
+                type="search"
+                placeholder="Marca, modelo, anio o VIN"
+                value={salesVehicleSearch}
+                onChange={(event) => setSalesVehicleSearch(event.target.value)}
+              />
+            </label>
+            <label className="vehicle-selector-field vehicle-selector-select">
+              <span>Vehiculo para ventas</span>
+              <select
+                className="input-control"
+                value={selectedSalesVehicle ? String(selectedSalesVehicle.id) : ""}
+                onChange={handleSalesVehicleSelect}
+              >
+                <option value="">Selecciona un vehiculo</option>
+                {salesSelectorVehicles.map((vehicle) => (
+                  <option key={vehicle.id} value={vehicle.id}>
+                    {vehicleOptionLabel(vehicle)}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+
+          {!selectedSalesVehicle ? (
+            <p className="selection-empty">Selecciona un vehiculo para ver y registrar sus ventas.</p>
+          ) : (
+            <>
           <div className="panel-title-row">
             <h2>
               Ventas de {selectedSalesVehicle.marca} {selectedSalesVehicle.modelo}
@@ -1885,6 +2001,8 @@ const formatMoney = (value, currency = "USD") => {
 			</tbody>
             </table>
           </div>
+            </>
+          )}
         </section>
       )}
 
