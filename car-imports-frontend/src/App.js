@@ -284,6 +284,21 @@ function App() {
     return payload?.message || payload?.error || fallbackMessage;
   };
 
+
+  const handleWriteAuthErrors = (response, payload, forbiddenMessage = "No tienes permisos para realizar esta acción") => {
+    if (response.status === 401) {
+      clearSession();
+      setLoginError("Tu sesion expiro o ya no es valida. Inicia sesion nuevamente.");
+      return true;
+    }
+
+    if (response.status === 403) {
+      throw new Error(payload?.message || payload?.error || forbiddenMessage);
+    }
+
+    return false;
+  };
+
   const resetUserForm = () => {
     setUserForm({
       name: "",
@@ -520,7 +535,8 @@ function App() {
     fetch(url, {
       method,
       headers: {
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
+        ...getAuthHeaders()
       },
       body: JSON.stringify(payload)
     })
@@ -528,13 +544,19 @@ function App() {
         const data = await res.json();
         console.log("RESPUESTA BACKEND COST:", data);
 
+        if (handleWriteAuthErrors(res, data, "No tienes permisos para guardar costos")) {
+          return null;
+        }
+
         if (!res.ok) {
           throw new Error(data.message || data.error || "Error guardando costo");
         }
 
         return data;
       })
-      .then(() => {
+      .then((result) => {
+        if (result === null) return;
+
         if (selectedVehicle) {
           loadCosts(selectedVehicle.id);
         }
@@ -567,10 +589,25 @@ function App() {
     if (!window.confirm("¿Seguro que deseas eliminar este costo?")) return;
 
     fetch(`${API_BASE_URL}/costs/${costId}`, {
-      method: "DELETE"
+      method: "DELETE",
+      headers: getAuthHeaders()
     })
-      .then((res) => res.json())
-      .then(() => {
+      .then(async (res) => {
+        const data = await res.json();
+
+        if (handleWriteAuthErrors(res, data, "No tienes permisos para eliminar costos")) {
+          return null;
+        }
+
+        if (!res.ok) {
+          throw new Error(data.message || data.error || "Error eliminando costo");
+        }
+
+        return data;
+      })
+      .then((result) => {
+        if (result === null) return;
+
         if (selectedVehicle) {
           loadCosts(selectedVehicle.id);
         }
@@ -639,15 +676,20 @@ function App() {
     };
     fetch(url, {
       method,
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        ...getAuthHeaders()
+      },
       body: JSON.stringify(payload)
     })
       .then(async (res) => {
         const data = await res.json();
+        if (handleWriteAuthErrors(res, data, "No tienes permisos para guardar ventas")) return null;
         if (!res.ok) throw new Error(data.message || "Error guardando venta");
         return data;
       })
-      .then(() => {
+      .then((result) => {
+        if (result === null) return;
         loadSales(selectedSalesVehicle.id);
         loadVehicles();
         loadProfitReport();
@@ -676,9 +718,25 @@ function App() {
 
   const handleDeleteSale = (saleId) => {
     if (!window.confirm("¿Seguro que deseas eliminar esta venta?")) return;
-    fetch(`${API_BASE_URL}/sales/${saleId}`, { method: "DELETE" })
-      .then((res) => res.json())
-      .then(() => {
+    fetch(`${API_BASE_URL}/sales/${saleId}`, {
+      method: "DELETE",
+      headers: getAuthHeaders()
+    })
+      .then(async (res) => {
+        const data = await res.json();
+
+        if (handleWriteAuthErrors(res, data, "No tienes permisos para eliminar ventas")) {
+          return null;
+        }
+
+        if (!res.ok) {
+          throw new Error(data.message || data.error || "Error eliminando venta");
+        }
+
+        return data;
+      })
+      .then((result) => {
+        if (result === null) return;
         if (selectedSalesVehicle) {
           loadSales(selectedSalesVehicle.id);
           loadVehicles();
@@ -804,10 +862,24 @@ function App() {
     if (!window.confirm("¿Seguro que deseas eliminar este vehículo?")) return;
 
     fetch(`${API_BASE_URL}/vehicles/${id}`, {
-      method: "DELETE"
+      method: "DELETE",
+      headers: getAuthHeaders()
     })
-      .then((res) => res.json())
-      .then(() => {
+      .then(async (res) => {
+        const data = await res.json();
+
+        if (handleWriteAuthErrors(res, data, "No tienes permisos para eliminar vehículos")) {
+          return null;
+        }
+
+        if (!res.ok) {
+          throw new Error(data.message || data.error || "Error eliminando vehículo");
+        }
+
+        return data;
+      })
+      .then((result) => {
+        if (result === null) return;
         loadVehicles();
       })
       .catch((err) => console.error(err));
@@ -839,7 +911,8 @@ function App() {
     fetch(url, {
       method,
       headers: {
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
+        ...getAuthHeaders()
       },
       body: JSON.stringify({
         ...form,
@@ -847,8 +920,21 @@ function App() {
         precio_estimado: form.precio_estimado === "" ? undefined : Number(form.precio_estimado)
       })
     })
-      .then((res) => res.json())
-      .then(() => {
+      .then(async (res) => {
+        const data = await res.json();
+
+        if (handleWriteAuthErrors(res, data, "No tienes permisos para guardar vehículos")) {
+          return null;
+        }
+
+        if (!res.ok) {
+          throw new Error(data.message || data.error || "Error guardando vehículo");
+        }
+
+        return data;
+      })
+      .then((result) => {
+        if (result === null) return;
         loadVehicles();
         setForm({
           vin: "",
