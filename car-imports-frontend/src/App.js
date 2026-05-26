@@ -44,6 +44,12 @@ const coloresEstado = {
 };
 
 const estadoLabel = (estado) => estado.replaceAll("_", " ");
+const LoadingSpinner = ({ label = "Cargando" }) => (
+  <span className="inline-loader" role="status" aria-live="polite">
+    <span className="spinner" aria-hidden="true" />
+    {label}
+  </span>
+);
 function App() {
   const initialDataLoadedRef = useRef(false);
   const costReportAutoRequestedRef = useRef(false);
@@ -1572,7 +1578,7 @@ const formatMoney = (value, currency = "USD") => {
               <p className="panel-subtitle">Crea usuarios, actualiza rol/estado y cambia passwords. No hay eliminación de usuarios.</p>
             </div>
             <button className="btn btn-secondary" type="button" onClick={loadUsers} disabled={usersLoading}>
-              {usersLoading ? "Cargando..." : "Actualizar usuarios"}
+              {usersLoading ? <LoadingSpinner /> : "Actualizar usuarios"}
             </button>
           </div>
 
@@ -1678,7 +1684,7 @@ const formatMoney = (value, currency = "USD") => {
                 {usersLoading ? (
                   <tr>
                     <td colSpan={6} className="report-empty-cell">
-                      Cargando usuarios...
+                      <LoadingSpinner label="Cargando usuarios..." />
                     </td>
                   </tr>
                 ) : users.length === 0 ? (
@@ -2237,7 +2243,7 @@ const formatMoney = (value, currency = "USD") => {
           </div>
           <div className="report-actions">
             <button className="btn btn-secondary" type="button" onClick={() => loadProfitReport()} disabled={loadingProfitReport}>
-              {loadingProfitReport ? "Actualizando..." : "Actualizar reporte"}
+              {loadingProfitReport ? <LoadingSpinner label="Actualizando..." /> : "Actualizar reporte"}
             </button>
             <button
               className="btn btn-primary"
@@ -2438,7 +2444,7 @@ const formatMoney = (value, currency = "USD") => {
           <h2>Auditoría</h2>
           <p className="panel-subtitle">Registro de acciones administrativas del sistema.</p>
           <button className="btn btn-secondary" type="button" onClick={loadAuditLogs} disabled={auditLogsLoading}>
-            {auditLogsLoading ? "Cargando..." : "Actualizar auditoría"}
+            {auditLogsLoading ? <LoadingSpinner label="Cargando..." /> : "Actualizar auditoría"}
           </button>
           {auditLogsMessage.text && (
             <div className={`user-feedback user-feedback-${auditLogsMessage.type}`}>{auditLogsMessage.text}</div>
