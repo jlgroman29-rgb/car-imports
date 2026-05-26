@@ -280,6 +280,24 @@ def require_admin(handler):
     return wrapped
 
 
+def require_authenticated_active_user(handler):
+    @wraps(handler)
+    def wrapped(*args, **kwargs):
+        user, error_response = get_authenticated_user()
+        if error_response:
+            return error_response
+
+        if not user.get("is_active"):
+            return {
+                "status": "error",
+                "message": "Usuario inactivo"
+            }, 403
+
+        return handler(*args, **kwargs)
+
+    return wrapped
+
+
 def ensure_audit_logs_table(conn):
     cur = conn.cursor()
     cur.execute("""
@@ -983,6 +1001,7 @@ def get_vehicles():
 
 
 @app.route("/vehicles", methods=["POST"])
+@require_authenticated_active_user
 def create_vehicle():
     try:
         data = request.json
@@ -1045,6 +1064,7 @@ def create_vehicle():
 
 
 @app.route("/vehicles/<int:id>", methods=["PUT"])
+@require_authenticated_active_user
 def update_vehicle(id):
     try:
         data = request.json
@@ -1104,6 +1124,7 @@ def get_vehicle_by_id(id):
 
 
 @app.route("/vehicles/<int:id>", methods=["DELETE"])
+@require_authenticated_active_user
 def delete_vehicle(id):
     try:
         conn = get_connection()
@@ -1131,6 +1152,7 @@ def delete_vehicle(id):
 
 
 @app.route("/vehicles/<int:id>", methods=["PATCH"])
+@require_authenticated_active_user
 def patch_vehicle(id):
     try:
         data = request.json
@@ -1255,6 +1277,7 @@ def get_cost_types():
     return {"status": "OK", "data": VALID_TIPOS_COSTO}
 
 @app.route("/sales", methods=["POST"])
+@require_authenticated_active_user
 def create_sale():
     """
     Crea una venta para un vehículo específico.
@@ -1672,6 +1695,7 @@ def get_profit_report():
 
 
 @app.route("/sales/<int:id>", methods=["PATCH"])
+@require_authenticated_active_user
 def patch_sale(id):
     """
     Actualiza parcialmente una venta existente.
@@ -1802,6 +1826,7 @@ def patch_sale(id):
 
 
 @app.route("/sales/<int:id>", methods=["DELETE"])
+@require_authenticated_active_user
 def delete_sale(id):
     """
     Elimina una venta por su identificador.
@@ -1859,6 +1884,7 @@ def delete_sale(id):
         return {"status": "error", "message": str(e)}, 500
 
 @app.route("/costs", methods=["POST"])
+@require_authenticated_active_user
 def create_cost():
     try:
         data = request.get_json(silent=True) or {}
@@ -1972,6 +1998,7 @@ def get_costs_by_vehicle(vehicle_id):
         return {"error": str(e)}, 500
 
 @app.route("/costs/<int:id>", methods=["DELETE"])
+@require_authenticated_active_user
 def delete_cost(id):
     try:
         conn = get_connection()
@@ -1994,6 +2021,7 @@ def delete_cost(id):
     except Exception as e:
         return {"error": str(e)}, 500
 @app.route("/costs/<int:id>", methods=["PATCH"])
+@require_authenticated_active_user
 def patch_cost(id):
     try:
         data = request.get_json(silent=True) or {}
