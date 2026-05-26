@@ -8,6 +8,7 @@ import os
 import psycopg2
 import time
 import click
+from functools import wraps
 from flasgger import Swagger
 from flask_cors import CORS
 from werkzeug.security import check_password_hash, generate_password_hash
@@ -239,10 +240,10 @@ def get_authenticated_user():
     except Exception as e:
         return None, ({"error": str(e)}, 500)
 
-    if not user or not user["is_active"]:
+    if not user:
         return None, ({
             "status": "error",
-            "message": "Usuario no encontrado o inactivo"
+            "message": "Usuario no encontrado"
         }, 401)
 
     return user, None
@@ -253,6 +254,12 @@ def require_admin_user():
     if error_response:
         return None, error_response
 
+    if not user.get("is_active"):
+        return None, ({
+            "status": "error",
+            "message": "Usuario inactivo"
+        }, 403)
+
     if user.get("role") != "admin":
         return None, ({
             "status": "error",
@@ -260,6 +267,17 @@ def require_admin_user():
         }, 403)
 
     return user, None
+
+
+def require_admin(handler):
+    @wraps(handler)
+    def wrapped(*args, **kwargs):
+        _, error_response = require_admin_user()
+        if error_response:
+            return error_response
+        return handler(*args, **kwargs)
+
+    return wrapped
 
 
 def ensure_audit_logs_table(conn):
@@ -614,11 +632,8 @@ def auth_me():
 
 
 @app.route("/users", methods=["GET"])
+@require_admin
 def list_users():
-    admin_user, error_response = require_admin_user()
-    if error_response:
-        return error_response
-
     try:
         import psycopg2.extras
 
@@ -645,6 +660,7 @@ def list_users():
 
 
 @app.route("/audit-logs", methods=["GET"])
+@require_admin
 def list_audit_logs():
     try:
         import psycopg2.extras
@@ -668,11 +684,8 @@ def list_audit_logs():
 
 
 @app.route("/users", methods=["POST"])
+@require_admin
 def create_user():
-    admin_user, error_response = require_admin_user()
-    if error_response:
-        return error_response
-
     data = request.get_json(silent=True) or {}
     email = normalize_email(data.get("email"))
     password = data.get("password") or ""
@@ -732,11 +745,8 @@ def create_user():
 
 
 @app.route("/users/<int:user_id>", methods=["PATCH"])
+@require_admin
 def update_user(user_id):
-    admin_user, error_response = require_admin_user()
-    if error_response:
-        return error_response
-
     data = request.get_json(silent=True) or {}
     allowed_fields = {"name", "email", "role", "is_active"}
     provided_fields = allowed_fields.intersection(data.keys())
@@ -831,11 +841,8 @@ def update_user(user_id):
 
 
 @app.route("/users/<int:user_id>/password", methods=["PATCH"])
+@require_admin
 def update_user_password(user_id):
-    admin_user, error_response = require_admin_user()
-    if error_response:
-        return error_response
-
     data = request.get_json(silent=True) or {}
     password = data.get("password") or ""
 
