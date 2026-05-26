@@ -81,7 +81,7 @@ function App() {
   });
 
   const loadVehicles = () => {
-    fetch(`${API_BASE_URL}/vehicles`)
+    fetch(`${API_BASE_URL}/vehicles`, { headers: getAuthHeaders() })
       .then((res) => res.json())
       .then(async (data) => {
         console.log("DATA BACKEND:", data);
@@ -91,7 +91,9 @@ function App() {
         const salesMapEntries = await Promise.all(
           list.map(async (vehicle) => {
             try {
-              const response = await fetch(`${API_BASE_URL}/vehicles/${vehicle.id}/sales`);
+              const response = await fetch(`${API_BASE_URL}/vehicles/${vehicle.id}/sales`, {
+                headers: getAuthHeaders()
+              });
               const payload = await response.json();
               const hasSale = response.ok && Array.isArray(payload?.data) && payload.data.length > 0;
               return [vehicle.id, hasSale];
@@ -109,14 +111,14 @@ function App() {
     setCosts([]);
     setTotalCost(0);
 
-    fetch(`${API_BASE_URL}/vehicles/${vehicleId}/costs`)
+    fetch(`${API_BASE_URL}/vehicles/${vehicleId}/costs`, { headers: getAuthHeaders() })
       .then((res) => res.json())
       .then((data) => {
         setCosts(data.data || []);
       })
       .catch((err) => console.error("Error cargando costos:", err));
 
-    fetch(`${API_BASE_URL}/vehicles/${vehicleId}/costs/total`)
+    fetch(`${API_BASE_URL}/vehicles/${vehicleId}/costs/total`, { headers: getAuthHeaders() })
       .then((res) => res.json())
       .then((data) => {
         setTotalCost(data.total_cost || 0);
@@ -520,7 +522,8 @@ function App() {
     fetch(url, {
       method,
       headers: {
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
+        ...getAuthHeaders()
       },
       body: JSON.stringify(payload)
     })
@@ -567,7 +570,8 @@ function App() {
     if (!window.confirm("¿Seguro que deseas eliminar este costo?")) return;
 
     fetch(`${API_BASE_URL}/costs/${costId}`, {
-      method: "DELETE"
+      method: "DELETE",
+      headers: getAuthHeaders()
     })
       .then((res) => res.json())
       .then(() => {
@@ -601,7 +605,7 @@ function App() {
 
   const loadSales = (vehicleId) => {
     setSales([]);
-    fetch(`${API_BASE_URL}/vehicles/${vehicleId}/sales`)
+    fetch(`${API_BASE_URL}/vehicles/${vehicleId}/sales`, { headers: getAuthHeaders() })
       .then((res) => res.json())
       .then((data) => setSales(data.data || []))
       .catch((err) => console.error("Error cargando ventas:", err));
@@ -639,7 +643,7 @@ function App() {
     };
     fetch(url, {
       method,
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...getAuthHeaders() },
       body: JSON.stringify(payload)
     })
       .then(async (res) => {
@@ -676,7 +680,7 @@ function App() {
 
   const handleDeleteSale = (saleId) => {
     if (!window.confirm("¿Seguro que deseas eliminar esta venta?")) return;
-    fetch(`${API_BASE_URL}/sales/${saleId}`, { method: "DELETE" })
+    fetch(`${API_BASE_URL}/sales/${saleId}`, { method: "DELETE", headers: getAuthHeaders() })
       .then((res) => res.json())
       .then(() => {
         if (selectedSalesVehicle) {
@@ -804,7 +808,8 @@ function App() {
     if (!window.confirm("¿Seguro que deseas eliminar este vehículo?")) return;
 
     fetch(`${API_BASE_URL}/vehicles/${id}`, {
-      method: "DELETE"
+      method: "DELETE",
+      headers: getAuthHeaders()
     })
       .then((res) => res.json())
       .then(() => {
@@ -839,7 +844,8 @@ function App() {
     fetch(url, {
       method,
       headers: {
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
+        ...getAuthHeaders()
       },
       body: JSON.stringify({
         ...form,
@@ -1037,7 +1043,7 @@ const formatMoney = (value, currency = "USD") => {
     const url = `${API_BASE_URL}/vehicles/profit-report${queryString ? `?${queryString}` : ""}`;
 
     try {
-      const response = await fetch(url);
+      const response = await fetch(url, { headers: getAuthHeaders() });
       const payload = await response.json();
 
       if (!response.ok) {
@@ -1097,8 +1103,8 @@ const formatMoney = (value, currency = "USD") => {
     const rows = await Promise.all(
       vehicles.map(async (vehicle) => {
         const [costsResponse, totalResponse] = await Promise.all([
-          fetch(`${API_BASE_URL}/vehicles/${vehicle.id}/costs`),
-          fetch(`${API_BASE_URL}/vehicles/${vehicle.id}/costs/total`)
+          fetch(`${API_BASE_URL}/vehicles/${vehicle.id}/costs`, { headers: getAuthHeaders() }),
+          fetch(`${API_BASE_URL}/vehicles/${vehicle.id}/costs/total`, { headers: getAuthHeaders() })
         ]);
 
         const costsPayload = await costsResponse.json();
@@ -1250,7 +1256,9 @@ const formatMoney = (value, currency = "USD") => {
     receiptWindow.document.write("<p style='font-family: Arial, sans-serif; padding: 16px;'>Generando factura...</p>");
 
     try {
-      const response = await fetch(`${API_BASE_URL}/vehicles/${vehicle.id}/sales`);
+      const response = await fetch(`${API_BASE_URL}/vehicles/${vehicle.id}/sales`, {
+        headers: getAuthHeaders()
+      });
       const payload = await response.json();
       const sale = payload?.data?.[0];
 
