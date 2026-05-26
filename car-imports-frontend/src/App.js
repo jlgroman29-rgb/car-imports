@@ -58,6 +58,9 @@ function App() {
   const [users, setUsers] = useState([]);
   const [usersLoading, setUsersLoading] = useState(false);
   const [usersMessage, setUsersMessage] = useState({ type: "", text: "" });
+  const [auditLogs, setAuditLogs] = useState([]);
+  const [auditLogsLoading, setAuditLogsLoading] = useState(false);
+  const [auditLogsMessage, setAuditLogsMessage] = useState({ type: "", text: "" });
   const [editingUserId, setEditingUserId] = useState(null);
   const [userForm, setUserForm] = useState({
     name: "",
@@ -311,6 +314,41 @@ function App() {
       setUsersMessage({ type: "error", text: error.message || "No se pudo cargar la lista de usuarios" });
     } finally {
       setUsersLoading(false);
+    }
+  };
+
+  const loadAuditLogs = async () => {
+    setAuditLogsLoading(true);
+    setAuditLogsMessage({ type: "", text: "" });
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/audit-logs`, {
+        headers: getAuthHeaders()
+      });
+      const data = await response.json();
+
+      if (response.status === 401) {
+        clearSession();
+        setLoginError("Tu sesion expiro o ya no es valida. Inicia sesion nuevamente.");
+        return;
+      }
+
+      if (response.status === 403) {
+        setAuditLogs([]);
+        setAuditLogsMessage({ type: "error", text: "No tienes permisos para ver auditoría" });
+        return;
+      }
+
+      if (!response.ok) {
+        throw new Error(parseApiError(data, "No se pudieron cargar los logs de auditoría"));
+      }
+
+      setAuditLogs(data.data || []);
+    } catch (error) {
+      console.error("Error cargando auditoría:", error);
+      setAuditLogsMessage({ type: "error", text: error.message || "No se pudieron cargar los logs de auditoría" });
+    } finally {
+      setAuditLogsLoading(false);
     }
   };
 
@@ -752,6 +790,15 @@ function App() {
     loadUsers();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authStatus, authUser?.role]);
+
+  useEffect(() => {
+    if (authStatus !== "authenticated" || authUser?.role !== "admin" || activeTab !== "auditoria") {
+      return;
+    }
+
+    loadAuditLogs();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authStatus, authUser?.role, activeTab]);
 
   const deleteVehicle = (id) => {
     if (!window.confirm("¿Seguro que deseas eliminar este vehículo?")) return;
@@ -2381,7 +2428,47 @@ const formatMoney = (value, currency = "USD") => {
       {activeTab === "auditoria" && (
         <section className="panel">
           <h2>Auditoría</h2>
-          <p className="panel-subtitle">Módulo reservado para auditoría. Conserva la lógica actual sin cambios.</p>
+          <p className="panel-subtitle">Registro de acciones administrativas del sistema.</p>
+          <button className="btn btn-secondary" type="button" onClick={loadAuditLogs} disabled={auditLogsLoading}>
+            {auditLogsLoading ? "Cargando..." : "Actualizar auditoría"}
+          </button>
+          {auditLogsMessage.text && (
+            <div className={`user-feedback user-feedback-${auditLogsMessage.type}`}>{auditLogsMessage.text}</div>
+          )}
+          <div className="table-wrapper">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>Fecha</th>
+                  <th>Usuario</th>
+                  <th>Acción</th>
+                  <th>Entidad</th>
+                  <th>ID entidad</th>
+                  <th>Detalles</th>
+                </tr>
+              </thead>
+              <tbody>
+                {!auditLogsLoading && auditLogs.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} className="report-empty-cell">
+                      {auditLogsMessage.text || "No hay registros de auditoría para mostrar."}
+                    </td>
+                  </tr>
+                ) : (
+                  auditLogs.map((log) => (
+                    <tr key={log.id}>
+                      <td>{log.created_at || "—"}</td>
+                      <td>{log.user_name || log.user_email || log.user_id || "—"}</td>
+                      <td>{log.action || "—"}</td>
+                      <td>{log.entity_type || "—"}</td>
+                      <td>{log.entity_id || "—"}</td>
+                      <td>{typeof log.details === "string" ? log.details : JSON.stringify(log.details || {})}</td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
         </section>
       )}
 
