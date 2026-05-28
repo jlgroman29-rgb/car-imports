@@ -3,12 +3,28 @@ import { BarChart, Bar, XAxis, YAxis, Tooltip, Cell, ResponsiveContainer, PieCha
 import "./App.css";
 import { COMPANY_BRAND } from "./branding";
 import { exportCostReport, exportFinancialReport, EXPORT_FORMATS } from "./reportExport";
+import { buildQuoteHtml } from "./quoteTemplate";
 import { buildReceiptHtml } from "./receiptTemplate";
 
 const API_BASE_URL = "http://127.0.0.1:5000";
 const AUTH_TOKEN_KEY = "car_imports_access_token";
 const USER_ROLES = ["user", "admin"];
 const TODAY_DATE = new Date().toISOString().split("T")[0];
+const EMPTY_QUOTE_FORM = {
+  vehicle_id: "",
+  customer_name: "",
+  customer_document: "",
+  customer_phone: "",
+  customer_email: "",
+  customer_address: "",
+  finance_entity: "",
+  price_usd: "",
+  exchange_rate: "",
+  valid_until: "",
+  notes: "",
+  status: "emitida"
+};
+const QUOTE_STATUSES = ["emitida", "borrador", "cancelada"];
 
 
 const ESTADOS = [
@@ -170,6 +186,12 @@ function App() {
   const [salesVehicleSearch, setSalesVehicleSearch] = useState("");
   const [sales, setSales] = useState([]);
   const [editingSaleId, setEditingSaleId] = useState(null);
+  const [quotes, setQuotes] = useState([]);
+  const [quotesLoading, setQuotesLoading] = useState(false);
+  const [quotesMessage, setQuotesMessage] = useState({ type: "", text: "" });
+  const [quoteVehicleSearch, setQuoteVehicleSearch] = useState("");
+  const [editingQuoteId, setEditingQuoteId] = useState(null);
+  const [quoteForm, setQuoteForm] = useState(EMPTY_QUOTE_FORM);
   const [saleForm, setSaleForm] = useState({
     nombre_cliente: "",
     telefono_cliente: "",
@@ -198,6 +220,7 @@ function App() {
     setVehicles([]);
     setCosts([]);
     setSales([]);
+    setQuotes([]);
     setProfitRows([]);
     setReportRows([]);
     setReportVisible(false);
@@ -209,6 +232,8 @@ function App() {
     setPasswordForm({ userId: null, label: "", password: "" });
     setSelectedVehicle(null);
     setSelectedSalesVehicle(null);
+    setQuoteForm(EMPTY_QUOTE_FORM);
+    setEditingQuoteId(null);
   };
 
   const getTokenExpiration = (token) => {
@@ -699,6 +724,161 @@ function App() {
       .catch((err) => console.error(err));
   };
 
+  const resetQuoteForm = () => {
+    setQuoteForm(EMPTY_QUOTE_FORM);
+    setEditingQuoteId(null);
+    setQuotesMessage({ type: "", text: "" });
+  };
+
+  const loadQuotes = async () => {
+    setQuotesLoading(true);
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/quotes`, {
+        headers: getAuthHeaders()
+      });
+      const payload = await response.json();
+
+      if (!response.ok) {
+        throw new Error(parseApiError(payload, "No se pudieron cargar las cotizaciones"));
+      }
+
+      setQuotes(payload.data || []);
+    } catch (error) {
+      console.error("Error cargando cotizaciones:", error);
+      setQuotesMessage({ type: "error", text: error.message || "No se pudieron cargar las cotizaciones" });
+    } finally {
+      setQuotesLoading(false);
+    }
+  };
+
+  const quotePriceDop = Number(quoteForm.price_usd || 0) * Number(quoteForm.exchange_rate || 0);
+
+  const getVehicleById = (vehicleId) => vehicles.find((vehicle) => String(vehicle.id) === String(vehicleId));
+
+  const handleQuoteChange = (event) => {
+    const { name, value } = event.target;
+    setQuoteForm((currentForm) => ({ ...currentForm, [name]: value }));
+  };
+
+  const handleQuoteVehicleSelect = (event) => {
+    const vehicle = getVehicleById(event.target.value);
+
+    setQuoteForm((currentForm) => ({
+      ...currentForm,
+      vehicle_id: event.target.value,
+      price_usd:
+        !editingQuoteId && vehicle?.precio_estimado !== null && vehicle?.precio_estimado !== undefined
+          ? String(vehicle.precio_estimado)
+          : currentForm.price_usd
+    }));
+  };
+
+  const handleQuoteSubmit = async (event) => {
+    event.preventDefault();
+    setQuotesMessage({ type: "", text: "" });
+
+    const payload = {
+      ...quoteForm,
+      vehicle_id: Number(quoteForm.vehicle_id),
+      price_usd: Number(quoteForm.price_usd),
+      exchange_rate: Number(quoteForm.exchange_rate),
+      price_dop: quotePriceDop
+    };
+
+    const url = editingQuoteId ? `${API_BASE_URL}/quotes/${editingQuoteId}` : `${API_BASE_URL}/quotes`;
+    const method = editingQuoteId ? "PATCH" : "POST";
+
+    try {
+      const response = await fetch(url, {
+        method,
+        headers: {
+          "Content-Type": "application/json",
+          ...getAuthHeaders()
+        },
+        body: JSON.stringify(payload)
+      });
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(parseApiError(data, "No se pudo guardar la cotizacion"));
+      }
+
+      setQuotesMessage({
+        type: "success",
+        text: editingQuoteId ? "Cotizacion actualizada correctamente." : "Cotizacion creada correctamente."
+      });
+      resetQuoteForm();
+      loadQuotes();
+    } catch (error) {
+      console.error("Error guardando cotizacion:", error);
+      setQuotesMessage({ type: "error", text: error.message || "No se pudo guardar la cotizacion" });
+    }
+  };
+
+  const handleEditQuote = (quote) => {
+    setQuotesMessage({ type: "", text: "" });
+    setEditingQuoteId(quote.id);
+    setQuoteForm({
+      vehicle_id: quote.vehicle_id ? String(quote.vehicle_id) : "",
+      customer_name: quote.customer_name || "",
+      customer_document: quote.customer_document || "",
+      customer_phone: quote.customer_phone || "",
+      customer_email: quote.customer_email || "",
+      customer_address: quote.customer_address || "",
+      finance_entity: quote.finance_entity || "",
+      price_usd: quote.price_usd !== null && quote.price_usd !== undefined ? String(quote.price_usd) : "",
+      exchange_rate: quote.exchange_rate !== null && quote.exchange_rate !== undefined ? String(quote.exchange_rate) : "",
+      valid_until: toDateInputValue(quote.valid_until),
+      notes: quote.notes || "",
+      status: quote.status || "emitida"
+    });
+    setActiveTab("cotizaciones");
+  };
+
+  const handleCancelQuote = async (quoteId) => {
+    if (!window.confirm("Seguro que deseas cancelar esta cotizacion?")) return;
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/quotes/${quoteId}`, {
+        method: "DELETE",
+        headers: getAuthHeaders()
+      });
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(parseApiError(data, "No se pudo cancelar la cotizacion"));
+      }
+
+      if (editingQuoteId === quoteId) {
+        resetQuoteForm();
+      }
+      setQuotesMessage({ type: "success", text: "Cotizacion cancelada correctamente." });
+      loadQuotes();
+    } catch (error) {
+      console.error("Error cancelando cotizacion:", error);
+      setQuotesMessage({ type: "error", text: error.message || "No se pudo cancelar la cotizacion" });
+    }
+  };
+
+  const handlePrintQuote = (quote) => {
+    const quoteWindow = window.open("", "_blank");
+
+    if (!quoteWindow) {
+      alert("No se pudo abrir la ventana de proforma. Habilita los pop-ups e intentalo de nuevo.");
+      return;
+    }
+
+    const vehicle = getVehicleById(quote.vehicle_id);
+    quoteWindow.document.open();
+    quoteWindow.document.write(buildQuoteHtml({ quote, vehicle }));
+    quoteWindow.document.close();
+    quoteWindow.focus();
+    quoteWindow.onload = () => {
+      quoteWindow.print();
+    };
+  };
+
   useEffect(() => {
     const token = localStorage.getItem(AUTH_TOKEN_KEY);
 
@@ -750,6 +930,7 @@ function App() {
 
     initialDataLoadedRef.current = true;
     loadVehicles();
+    loadQuotes();
     loadProfitReport();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authStatus]);
@@ -930,6 +1111,9 @@ function App() {
   );
   const salesSelectorVehicles = vehicles.filter((vehicle) =>
     vehicleMatchesSelectorSearch(vehicle, salesVehicleSearch) || vehicle.id === selectedSalesVehicle?.id
+  );
+  const quoteSelectorVehicles = vehicles.filter((vehicle) =>
+    vehicleMatchesSelectorSearch(vehicle, quoteVehicleSearch) || String(vehicle.id) === String(quoteForm.vehicle_id)
   );
 
   const totalInventario = vehicles.reduce((acc, v) => acc + Number(v.precio_estimado || 0), 0);
@@ -1409,6 +1593,7 @@ const formatMoney = (value, currency = "USD") => {
   const tabs = [
     { key: "dashboard", label: "Dashboard" },
     { key: "vehiculos", label: "Vehículos" },
+    { key: "cotizaciones", label: "Cotizaciones" },
     { key: "costos", label: "Costos" },
     { key: "ventas", label: "Ventas" },
     { key: "reportes", label: "Reportes" },
@@ -1822,6 +2007,23 @@ const formatMoney = (value, currency = "USD") => {
                       <button
                         className="btn btn-primary"
                         onClick={() => {
+                          setQuoteForm((currentForm) => ({
+                            ...currentForm,
+                            vehicle_id: String(v.id),
+                            price_usd:
+                              v.precio_estimado !== null && v.precio_estimado !== undefined
+                                ? String(v.precio_estimado)
+                                : currentForm.price_usd
+                          }));
+                          setEditingQuoteId(null);
+                          setActiveTab("cotizaciones");
+                        }}
+                      >
+                        Cotizar
+                      </button>
+                      <button
+                        className="btn btn-primary"
+                        onClick={() => {
                           setSelectedVehicle(v);
                           loadCosts(v.id);
                           setActiveTab("costos");
@@ -1852,6 +2054,158 @@ const formatMoney = (value, currency = "USD") => {
           </table>
         </div>
       </section>
+      )}
+
+      {activeTab === "cotizaciones" && (
+        <section className="panel quotes-panel">
+          <div className="panel-title-row">
+            <div>
+              <h2>{editingQuoteId ? "Editar cotizacion" : "Crear cotizacion"}</h2>
+              <p className="panel-subtitle">Proformas independientes de ventas e inventario.</p>
+            </div>
+            <button className="btn btn-secondary" type="button" onClick={loadQuotes} disabled={quotesLoading}>
+              {quotesLoading ? <LoadingSpinner label="Actualizando..." /> : "Actualizar"}
+            </button>
+          </div>
+
+          {quotesMessage.text && (
+            <div className={`user-feedback user-feedback-${quotesMessage.type}`}>{quotesMessage.text}</div>
+          )}
+
+          <form onSubmit={handleQuoteSubmit} className="form-grid quote-form-grid">
+            <label className="filter-field quote-vehicle-search">
+              <span>Buscar vehiculo</span>
+              <input
+                className="input-control"
+                type="search"
+                placeholder="Marca, modelo, anio o VIN"
+                value={quoteVehicleSearch}
+                onChange={(event) => setQuoteVehicleSearch(event.target.value)}
+              />
+            </label>
+            <label className="filter-field quote-vehicle-select">
+              <span>Vehiculo</span>
+              <select
+                className="input-control"
+                name="vehicle_id"
+                value={quoteForm.vehicle_id}
+                onChange={handleQuoteVehicleSelect}
+                required
+              >
+                <option value="">Selecciona un vehiculo</option>
+                {quoteSelectorVehicles.map((vehicle) => (
+                  <option key={vehicle.id} value={vehicle.id}>
+                    {vehicleOptionLabel(vehicle)}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <input className="input-control" name="customer_name" placeholder="Nombre cliente" value={quoteForm.customer_name} onChange={handleQuoteChange} />
+            <input className="input-control" name="customer_document" placeholder="Documento" value={quoteForm.customer_document} onChange={handleQuoteChange} />
+            <input className="input-control" name="customer_phone" placeholder="Telefono" value={quoteForm.customer_phone} onChange={handleQuoteChange} />
+            <input className="input-control" type="email" name="customer_email" placeholder="Email" value={quoteForm.customer_email} onChange={handleQuoteChange} />
+            <input className="input-control" name="customer_address" placeholder="Direccion" value={quoteForm.customer_address} onChange={handleQuoteChange} />
+            <input className="input-control" name="finance_entity" placeholder="Entidad financiera" value={quoteForm.finance_entity} onChange={handleQuoteChange} />
+            <input className="input-control" type="number" step="0.01" name="price_usd" placeholder="Precio USD" value={quoteForm.price_usd} onChange={handleQuoteChange} required />
+            <input className="input-control" type="number" step="0.0001" name="exchange_rate" placeholder="Tasa de cambio" value={quoteForm.exchange_rate} onChange={handleQuoteChange} required />
+            <div className="quote-total-preview">
+              <span>Precio DOP</span>
+              <strong>{formatMoney(quotePriceDop, "DOP")}</strong>
+            </div>
+            <input className="input-control" type="date" name="valid_until" value={quoteForm.valid_until} onChange={handleQuoteChange} />
+            <select className="input-control" name="status" value={quoteForm.status} onChange={handleQuoteChange}>
+              {QUOTE_STATUSES.map((status) => (
+                <option key={status} value={status}>
+                  {status}
+                </option>
+              ))}
+            </select>
+            <textarea
+              className="input-control quote-notes"
+              name="notes"
+              placeholder="Notas"
+              value={quoteForm.notes}
+              onChange={handleQuoteChange}
+            />
+            <div className="cost-form-actions quote-actions">
+              <button className="btn btn-primary" type="submit">
+                {editingQuoteId ? "Actualizar cotizacion" : "Crear cotizacion"}
+              </button>
+              {editingQuoteId && (
+                <button className="btn btn-secondary" type="button" onClick={resetQuoteForm}>
+                  Cancelar edicion
+                </button>
+              )}
+            </div>
+          </form>
+
+          <div className="table-wrapper">
+            <table className="data-table quotes-table">
+              <thead>
+                <tr>
+                  <th>ID</th>
+                  <th>Cliente</th>
+                  <th>Vehiculo</th>
+                  <th className="numeric">USD</th>
+                  <th className="numeric">Tasa</th>
+                  <th className="numeric">DOP</th>
+                  <th>Valida hasta</th>
+                  <th>Status</th>
+                  <th>Acciones</th>
+                </tr>
+              </thead>
+              <tbody>
+                {quotesLoading ? (
+                  <tr>
+                    <td colSpan={9} className="report-empty-cell">
+                      <LoadingSpinner label="Cargando cotizaciones..." />
+                    </td>
+                  </tr>
+                ) : quotes.length === 0 ? (
+                  <tr>
+                    <td colSpan={9} className="report-empty-cell">
+                      No hay cotizaciones para mostrar.
+                    </td>
+                  </tr>
+                ) : (
+                  quotes.map((quote) => {
+                    const vehicle = getVehicleById(quote.vehicle_id);
+                    return (
+                      <tr key={quote.id}>
+                        <td>{quote.id}</td>
+                        <td>{quote.customer_name || "-"}</td>
+                        <td>{vehicle ? vehicleOptionLabel(vehicle) : `Vehiculo ${quote.vehicle_id}`}</td>
+                        <td className="numeric">{formatMoney(quote.price_usd, "USD")}</td>
+                        <td className="numeric">{Number(quote.exchange_rate || 0).toFixed(2)}</td>
+                        <td className="numeric">{formatMoney(quote.price_dop, "DOP")}</td>
+                        <td>{formatDate(quote.valid_until)}</td>
+                        <td><span className={`status-pill quote-status-${quote.status || "emitida"}`}>{quote.status || "emitida"}</span></td>
+                        <td>
+                          <div className="table-actions">
+                            <button className="btn btn-secondary" type="button" onClick={() => handleEditQuote(quote)}>
+                              Editar
+                            </button>
+                            <button className="btn btn-primary" type="button" onClick={() => handlePrintQuote(quote)}>
+                              PDF
+                            </button>
+                            <button
+                              className="btn btn-danger"
+                              type="button"
+                              onClick={() => handleCancelQuote(quote.id)}
+                              disabled={quote.status === "cancelada"}
+                            >
+                              Cancelar
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+        </section>
       )}
 
       {activeTab === "costos" && (
