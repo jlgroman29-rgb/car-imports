@@ -24,7 +24,7 @@ const EMPTY_QUOTE_FORM = {
   notes: "",
   status: "emitida"
 };
-const QUOTE_STATUSES = ["emitida", "borrador", "cancelada"];
+const QUOTE_STATUSES = ["emitida", "borrador", "cancelada", "convertida"];
 
 
 const ESTADOS = [
@@ -189,6 +189,7 @@ function App() {
   const [quotes, setQuotes] = useState([]);
   const [quotesLoading, setQuotesLoading] = useState(false);
   const [quotesMessage, setQuotesMessage] = useState({ type: "", text: "" });
+  const [convertingQuoteId, setConvertingQuoteId] = useState(null);
   const [editingQuoteId, setEditingQuoteId] = useState(null);
   const [quoteForm, setQuoteForm] = useState(EMPTY_QUOTE_FORM);
   const [saleForm, setSaleForm] = useState({
@@ -857,6 +858,79 @@ function App() {
     } catch (error) {
       console.error("Error cancelando cotizacion:", error);
       setQuotesMessage({ type: "error", text: error.message || "No se pudo cancelar la cotizacion" });
+    }
+  };
+
+  const handleConvertQuoteToSale = async (quote) => {
+    if (quote.status !== "emitida") {
+      setQuotesMessage({ type: "error", text: "Solo las cotizaciones emitidas pueden convertirse en venta." });
+      return;
+    }
+
+    if (!window.confirm("Seguro que deseas convertir esta cotizacion en una venta real?")) return;
+
+    setConvertingQuoteId(quote.id);
+    setQuotesMessage({ type: "", text: "" });
+
+    const salePayload = {
+      vehicle_id: quote.vehicle_id,
+      precio_venta: Number(quote.price_usd || 0),
+      moneda: "USD",
+      tasa_cambio: Number(quote.exchange_rate || 0),
+      fecha_venta: TODAY_DATE,
+      nombre_cliente: quote.customer_name || "",
+      telefono_cliente: quote.customer_phone || "",
+      notas: [
+        `Venta creada desde cotizacion/proforma #${quote.id}.`,
+        quote.notes || ""
+      ].filter(Boolean).join(" ")
+    };
+
+    try {
+      const saleResponse = await fetch(`${API_BASE_URL}/sales`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...getAuthHeaders()
+        },
+        body: JSON.stringify(salePayload)
+      });
+      const saleData = await saleResponse.json();
+
+      if (!saleResponse.ok) {
+        const message = parseApiError(saleData, "No se pudo crear la venta desde la cotizacion");
+        throw new Error(message.includes("ya tiene una venta") ? "Este vehiculo ya tiene una venta registrada." : message);
+      }
+
+      const quoteResponse = await fetch(`${API_BASE_URL}/quotes/${quote.id}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          ...getAuthHeaders()
+        },
+        body: JSON.stringify({ status: "convertida" })
+      });
+      const quoteData = await quoteResponse.json();
+
+      if (!quoteResponse.ok) {
+        throw new Error(parseApiError(quoteData, "La venta fue creada, pero no se pudo marcar la cotizacion como convertida"));
+      }
+
+      const vehicle = getVehicleById(quote.vehicle_id);
+      if (vehicle) {
+        setSelectedSalesVehicle(vehicle);
+      }
+
+      loadQuotes();
+      loadVehicles();
+      loadSales(quote.vehicle_id);
+      loadProfitReport();
+      setQuotesMessage({ type: "success", text: "Cotizacion convertida en venta correctamente. Ya puedes imprimir la factura desde el flujo de ventas/vehiculos." });
+    } catch (error) {
+      console.error("Error convirtiendo cotizacion:", error);
+      setQuotesMessage({ type: "error", text: error.message || "No se pudo convertir la cotizacion en venta" });
+    } finally {
+      setConvertingQuoteId(null);
     }
   };
 
@@ -2170,6 +2244,14 @@ const formatMoney = (value, currency = "USD") => {
                             <button className="btn btn-secondary" type="button" onClick={() => handleEditQuote(quote)}>
                               Editar
                             </button>
+                            <button
+                              className="btn btn-primary"
+                              type="button"
+                              onClick={() => handleConvertQuoteToSale(quote)}
+                              disabled={quote.status !== "emitida" || convertingQuoteId === quote.id}
+                            >
+                              {convertingQuoteId === quote.id ? "Convirtiendo..." : "Convertir en venta"}
+                            </button>
                             <button className="btn btn-primary" type="button" onClick={() => handlePrintQuote(quote)}>
                               PDF
                             </button>
@@ -2177,7 +2259,7 @@ const formatMoney = (value, currency = "USD") => {
                               className="btn btn-danger"
                               type="button"
                               onClick={() => handleCancelQuote(quote.id)}
-                              disabled={quote.status === "cancelada"}
+                              disabled={quote.status === "cancelada" || quote.status === "convertida"}
                             >
                               Cancelar
                             </button>
