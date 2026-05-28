@@ -1,0 +1,2 @@
+net start CarImportsBackend
+net start CarImportsFrontend

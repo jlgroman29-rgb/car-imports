@@ -1,0 +1,2 @@
+net stop CarImportsFrontend
+net stop CarImportsBackend
