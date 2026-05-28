@@ -425,6 +425,71 @@ h1 {
   border: 1px solid #bfdbfe;
 }
 
+.quotes-panel {
+  border: 1px solid #bfdbfe;
+}
+
+.quote-form-grid {
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  align-items: end;
+}
+
+.quote-vehicle-select,
+.quote-notes,
+.quote-actions {
+  grid-column: span 2;
+}
+
+.quote-notes {
+  min-height: 88px;
+  resize: vertical;
+}
+
+.quote-total-preview {
+  min-height: 42px;
+  border: 1px solid #bfdbfe;
+  border-radius: 10px;
+  background: #eff6ff;
+  color: #1e3a8a;
+  padding: 8px 12px;
+  display: grid;
+  gap: 2px;
+}
+
+.quote-total-preview span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.quote-total-preview strong {
+  font-size: 17px;
+}
+
+.quotes-table {
+  min-width: 1080px;
+}
+
+.quote-status-emitida {
+  border-color: #bfdbfe;
+  background: #eff6ff;
+  color: #1e40af;
+}
+
+.quote-status-borrador {
+  border-color: #fde68a;
+  background: #fffbeb;
+  color: #92400e;
+}
+
+.quote-status-cancelada {
+  border-color: #fecaca;
+  background: #fef2f2;
+  color: #991b1b;
+}
+
 .cost-total {
   font-size: 14px;
   color: var(--muted);
@@ -581,6 +646,12 @@ h1 {
   .users-admin-grid,
   .financial-filters {
     grid-template-columns: 1fr;
+  }
+
+  .quote-vehicle-select,
+  .quote-notes,
+  .quote-actions {
+    grid-column: span 1;
   }
 
   .filters-row .input-control {
