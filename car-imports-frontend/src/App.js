@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from "react";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, Cell, ResponsiveContainer, PieChart, Pie, CartesianGrid } from "recharts";
 import "./App.css";
 import { COMPANY_BRAND } from "./branding";
-import { exportCostReport, exportFinancialReport, EXPORT_FORMATS } from "./reportExport";
+import { exportCostReport, exportFinancialReport, exportInventoryIntelligenceReport, EXPORT_FORMATS } from "./reportExport";
 import { buildQuoteHtml } from "./quoteTemplate";
 import { buildReceiptHtml } from "./receiptTemplate";
 
@@ -1526,6 +1526,46 @@ const formatMoney = (value, currency = "USD") => {
     });
   };
 
+  const handleExportInventoryIntelligence = (format) => {
+    const printWindow = format === EXPORT_FORMATS.PDF ? window.open("", "_blank") : null;
+    if (format === EXPORT_FORMATS.PDF && !printWindow) {
+      alert("No se pudo abrir la ventana de impresion. Habilita los pop-ups e intentalo de nuevo.");
+      return;
+    }
+
+    const summary = {
+      averageInventoryDays,
+      mostProfitableLabel: mostProfitableVehicle
+        ? `${vehicleDisplayName(mostProfitableVehicle)} - ${formatMoney(mostProfitableVehicle.ganancia_real)}`
+        : "Sin datos",
+      highestCostLabel: highestCostVehicle
+        ? `${vehicleDisplayName(highestCostVehicle)} - ${formatMoney(highestCostVehicle.total_costos)}`
+        : "Sin datos",
+      oldestInventoryLabel: oldestInventoryVehicle
+        ? `${vehicleDisplayName(oldestInventoryVehicle)} - ${oldestInventoryVehicle.dias_inventario} dias`
+        : "Sin datos"
+    };
+
+    try {
+      exportInventoryIntelligenceReport({
+        format,
+        summary,
+        inventoryAgeRows: topInventoryAgeRows,
+        profitableRows: topProfitableRows,
+        lossRows,
+        brandRows: brandRankingRows,
+        estadoLabel,
+        printWindow
+      });
+    } catch (error) {
+      if (printWindow && !printWindow.closed) {
+        printWindow.close();
+      }
+      console.error("Error exportando inteligencia de inventario:", error);
+      alert(error.message || "No se pudo exportar la inteligencia de inventario.");
+    }
+  };
+
   const handlePrintReceipt = async (vehicle) => {
     const receiptWindow = window.open("", "_blank");
 
@@ -2832,8 +2872,20 @@ const formatMoney = (value, currency = "USD") => {
         </div>
         <div className="inventory-intelligence-section">
           <div className="profit-detail-heading">
-            <h3>Inteligencia de Inventario</h3>
-            <p className="panel-subtitle">Indicadores calculados con vehiculos, costos y ganancias existentes.</p>
+            <div className="panel-title-row">
+              <div>
+                <h3>Inteligencia de Inventario</h3>
+                <p className="panel-subtitle">Indicadores calculados con vehiculos, costos y ganancias existentes.</p>
+              </div>
+              <div className="report-actions">
+                <button className="btn btn-primary" type="button" onClick={() => handleExportInventoryIntelligence(EXPORT_FORMATS.XLSX)}>
+                  Exportar Excel
+                </button>
+                <button className="btn btn-secondary" type="button" onClick={() => handleExportInventoryIntelligence(EXPORT_FORMATS.PDF)}>
+                  Exportar PDF
+                </button>
+              </div>
+            </div>
           </div>
 
           <div className="intelligence-grid">

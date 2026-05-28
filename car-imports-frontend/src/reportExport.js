@@ -32,6 +32,11 @@ const FINANCIAL_EXCEL_HEADERS = [
   "Margen"
 ];
 
+const INVENTORY_AGE_HEADERS = ["VIN", "Marca", "Modelo", "Ano", "Estado", "Dias en inventario"];
+const PROFITABLE_HEADERS = ["VIN", "Marca", "Modelo", "Ganancia real", "Margen"];
+const LOSS_HEADERS = ["VIN", "Marca", "Modelo", "Ganancia real"];
+const BRAND_HEADERS = ["Marca", "Cantidad", "Ganancia acumulada", "Ganancia promedio"];
+
 const escapeXml = (value) =>
   String(value ?? "")
     .replaceAll("&", "&amp;")
@@ -506,6 +511,206 @@ const exportFinancialReportToXlsx = ({ profitRows, profitTotals, margenPromedio,
   downloadBlob(blob, `dashboard-financiero-ejecutivo-${dateSuffix}.xlsx`);
 };
 
+const normalizeInventoryIntelligenceRows = (rows = [], estadoLabel) =>
+  rows.map((row) => ({
+    vin: row.vin || "-",
+    marca: row.marca || "-",
+    modelo: row.modelo || "-",
+    anio: row.anio || "-",
+    estado: estadoLabel(row.estado || "inventario") || "-",
+    dias_inventario: sanitizeNumber(row.dias_inventario),
+    ganancia_real: sanitizeNumber(row.ganancia_real),
+    margen_porcentaje: sanitizeNumber(row.margen_porcentaje)
+  }));
+
+const normalizeBrandRows = (rows = []) =>
+  rows.map((row) => ({
+    marca: row.marca || "Sin marca",
+    cantidad: sanitizeNumber(row.cantidad),
+    ganancia_acumulada: sanitizeNumber(row.ganancia_acumulada),
+    ganancia_promedio: sanitizeNumber(row.ganancia_promedio)
+  }));
+
+const addSectionTitleRow = (rowXml, rowNumber, title, mergeTo = "F") => {
+  rowXml.push(`<row r="${rowNumber}"><c r="A${rowNumber}" t="inlineStr" s="1"><is><t>${escapeXml(title)}</t></is></c></row>`);
+  return { rowNumber: rowNumber + 1, mergeRef: `A${rowNumber}:${mergeTo}${rowNumber}` };
+};
+
+const addHeaderRow = (rowXml, rowNumber, headers) => {
+  const cells = headers
+    .map((header, idx) => `<c r="${colLetter(idx + 1)}${rowNumber}" t="inlineStr" s="2"><is><t>${escapeXml(header)}</t></is></c>`)
+    .join("");
+  rowXml.push(`<row r="${rowNumber}">${cells}</row>`);
+  return rowNumber + 1;
+};
+
+const addEmptyRow = (rowXml, rowNumber, message, colSpan = 1) => {
+  rowXml.push(`<row r="${rowNumber}"><c r="A${rowNumber}" t="inlineStr" s="0"><is><t>${escapeXml(message)}</t></is></c></row>`);
+  return { rowNumber: rowNumber + 1, mergeRef: `A${rowNumber}:${colLetter(colSpan)}${rowNumber}` };
+};
+
+const buildInventoryIntelligenceSheetXml = ({
+  summary,
+  inventoryAgeRows,
+  profitableRows,
+  lossRows,
+  brandRows,
+  estadoLabel
+}) => {
+  const generatedAt = `Generado: ${new Date().toLocaleString("es-DO")}`;
+  const ageRows = normalizeInventoryIntelligenceRows(inventoryAgeRows, estadoLabel);
+  const topRows = normalizeInventoryIntelligenceRows(profitableRows, estadoLabel);
+  const negativeRows = normalizeInventoryIntelligenceRows(lossRows, estadoLabel);
+  const brands = normalizeBrandRows(brandRows);
+  const mergeRefs = [];
+  const rowXml = [];
+  let rowNumber = 1;
+
+  rowXml.push(`<row r="${rowNumber}"><c r="A${rowNumber}" t="inlineStr" s="1"><is><t>Inteligencia de Inventario</t></is></c></row>`);
+  mergeRefs.push(`A${rowNumber}:F${rowNumber}`);
+  rowNumber += 1;
+  rowXml.push(`<row r="${rowNumber}"><c r="A${rowNumber}" t="inlineStr" s="3"><is><t>${escapeXml(generatedAt)}</t></is></c></row>`);
+  mergeRefs.push(`A${rowNumber}:F${rowNumber}`);
+  rowNumber += 2;
+
+  const summaryRows = [
+    ["Dias promedio en inventario", `${sanitizeNumber(summary.averageInventoryDays).toFixed(0)} dias`],
+    ["Vehiculo mas rentable", summary.mostProfitableLabel || "Sin datos"],
+    ["Vehiculo con mayor costo acumulado", summary.highestCostLabel || "Sin datos"],
+    ["Vehiculo mas antiguo", summary.oldestInventoryLabel || "Sin datos"]
+  ];
+
+  rowXml.push(`<row r="${rowNumber}"><c r="A${rowNumber}" t="inlineStr" s="2"><is><t>Indicador</t></is></c><c r="B${rowNumber}" t="inlineStr" s="2"><is><t>Valor</t></is></c></row>`);
+  rowNumber += 1;
+  summaryRows.forEach(([label, value]) => {
+    rowXml.push(`<row r="${rowNumber}">${textCell(label)}${textCell(value)}</row>`);
+    rowNumber += 1;
+  });
+  rowNumber += 1;
+
+  const addVehicleSection = (title, headers, rows, rowBuilder, emptyMessage, mergeTo) => {
+    const section = addSectionTitleRow(rowXml, rowNumber, title, mergeTo);
+    rowNumber = section.rowNumber;
+    mergeRefs.push(section.mergeRef);
+    rowNumber = addHeaderRow(rowXml, rowNumber, headers);
+    if (!rows.length) {
+      const empty = addEmptyRow(rowXml, rowNumber, emptyMessage, headers.length);
+      rowNumber = empty.rowNumber;
+      mergeRefs.push(empty.mergeRef);
+    } else {
+      rows.forEach((row) => {
+        rowXml.push(`<row r="${rowNumber}">${rowBuilder(row)}</row>`);
+        rowNumber += 1;
+      });
+    }
+    rowNumber += 2;
+  };
+
+  addVehicleSection(
+    "Vehiculos con mas tiempo en inventario",
+    INVENTORY_AGE_HEADERS,
+    ageRows,
+    (row) => [
+      textCell(row.vin),
+      textCell(row.marca),
+      textCell(row.modelo),
+      textCell(row.anio),
+      textCell(row.estado),
+      numberCell(row.dias_inventario, 3)
+    ].join(""),
+    "No hay fechas de registro para calcular dias.",
+    "F"
+  );
+
+  addVehicleSection(
+    "Top vehiculos mas rentables",
+    PROFITABLE_HEADERS,
+    topRows,
+    (row) => [
+      textCell(row.vin),
+      textCell(row.marca),
+      textCell(row.modelo),
+      numberCell(row.ganancia_real, 3),
+      textCell(`${row.margen_porcentaje.toFixed(2)}%`)
+    ].join(""),
+    "No hay vehiculos con ganancia positiva.",
+    "E"
+  );
+
+  addVehicleSection(
+    "Vehiculos con perdida",
+    LOSS_HEADERS,
+    negativeRows,
+    (row) => [textCell(row.vin), textCell(row.marca), textCell(row.modelo), numberCell(row.ganancia_real, 3)].join(""),
+    "No hay vehiculos con perdida registrada.",
+    "D"
+  );
+
+  const brandSection = addSectionTitleRow(rowXml, rowNumber, "Ranking por marca", "D");
+  rowNumber = brandSection.rowNumber;
+  mergeRefs.push(brandSection.mergeRef);
+  rowNumber = addHeaderRow(rowXml, rowNumber, BRAND_HEADERS);
+  if (!brands.length) {
+    const empty = addEmptyRow(rowXml, rowNumber, "No hay datos por marca para mostrar.", BRAND_HEADERS.length);
+    rowNumber = empty.rowNumber;
+    mergeRefs.push(empty.mergeRef);
+  } else {
+    brands.forEach((row) => {
+      rowXml.push(
+        `<row r="${rowNumber}">${[
+          textCell(row.marca),
+          numberCell(row.cantidad, 3),
+          numberCell(row.ganancia_acumulada, 3),
+          numberCell(row.ganancia_promedio, 3)
+        ].join("")}</row>`
+      );
+      rowNumber += 1;
+    });
+  }
+
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+  <dimension ref="A1:F${Math.max(rowNumber, 8)}"/>
+  <sheetViews>
+    <sheetView workbookViewId="0"><pane ySplit="4" topLeftCell="A5" activePane="bottomLeft" state="frozen"/></sheetView>
+  </sheetViews>
+  <sheetFormatPr defaultRowHeight="16"/>
+  <cols>
+    <col min="1" max="1" width="22" customWidth="1"/>
+    <col min="2" max="3" width="18" customWidth="1"/>
+    <col min="4" max="4" width="18" customWidth="1"/>
+    <col min="5" max="6" width="18" customWidth="1"/>
+  </cols>
+  <sheetData>
+    ${rowXml.join("\n    ")}
+  </sheetData>
+  <mergeCells count="${mergeRefs.length}">
+    ${mergeRefs.map((ref) => `<mergeCell ref="${ref}"/>`).join("\n    ")}
+  </mergeCells>
+</worksheet>`;
+};
+
+const exportInventoryIntelligenceToXlsx = ({ summary, inventoryAgeRows, profitableRows, lossRows, brandRows, estadoLabel }) => {
+  const files = [
+    { name: "[Content_Types].xml", content: contentTypesXml },
+    { name: "_rels/.rels", content: relsXml },
+    { name: "xl/workbook.xml", content: buildWorkbookXml("Inteligencia") },
+    { name: "xl/_rels/workbook.xml.rels", content: workbookRelsXml },
+    { name: "xl/styles.xml", content: stylesXml },
+    {
+      name: "xl/worksheets/sheet1.xml",
+      content: buildInventoryIntelligenceSheetXml({ summary, inventoryAgeRows, profitableRows, lossRows, brandRows, estadoLabel })
+    }
+  ];
+
+  const zipBytes = createZip(files);
+  const blob = new Blob([zipBytes], {
+    type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+  });
+  const dateSuffix = new Date().toISOString().slice(0, 10);
+  downloadBlob(blob, `inteligencia-inventario-${dateSuffix}.xlsx`);
+};
+
 const formatAmount = (value) =>
   new Intl.NumberFormat("es-DO", {
     minimumFractionDigits: 2,
@@ -723,6 +928,111 @@ const buildFinancialPdfHtml = ({
 </html>`;
 };
 
+const buildSimpleRows = ({ rows, emptyMessage, cells, colSpan }) =>
+  rows.length
+    ? rows.map((row) => `<tr>${cells(row)}</tr>`).join("")
+    : `<tr><td colspan="${colSpan}" class="empty">${escapeXml(emptyMessage)}</td></tr>`;
+
+const buildInventoryIntelligencePdfHtml = ({
+  summary,
+  inventoryAgeRows,
+  profitableRows,
+  lossRows,
+  brandRows,
+  estadoLabel
+}) => {
+  const generatedAt = new Date().toLocaleString("es-DO");
+  const ageRows = normalizeInventoryIntelligenceRows(inventoryAgeRows, estadoLabel);
+  const topRows = normalizeInventoryIntelligenceRows(profitableRows, estadoLabel);
+  const negativeRows = normalizeInventoryIntelligenceRows(lossRows, estadoLabel);
+  const brands = normalizeBrandRows(brandRows);
+  const metrics = [
+    ["Dias promedio en inventario", `${sanitizeNumber(summary.averageInventoryDays).toFixed(0)} dias`],
+    ["Vehiculo mas rentable", summary.mostProfitableLabel || "Sin datos"],
+    ["Mayor costo acumulado", summary.highestCostLabel || "Sin datos"],
+    ["Vehiculo mas antiguo", summary.oldestInventoryLabel || "Sin datos"]
+  ];
+
+  const metricCards = metrics
+    .map(
+      ([label, value]) => `<article class="metric">
+        <p>${escapeXml(label)}</p>
+        <strong>${escapeXml(value)}</strong>
+      </article>`
+    )
+    .join("");
+
+  const ageTableRows = buildSimpleRows({
+    rows: ageRows,
+    emptyMessage: "No hay fechas de registro para calcular dias.",
+    colSpan: 6,
+    cells: (row) => `
+      <td>${escapeXml(row.vin)}</td><td>${escapeXml(row.marca)}</td><td>${escapeXml(row.modelo)}</td>
+      <td>${escapeXml(row.anio)}</td><td>${escapeXml(row.estado)}</td><td class="num">${formatAmount(row.dias_inventario)}</td>`
+  });
+  const profitableTableRows = buildSimpleRows({
+    rows: topRows,
+    emptyMessage: "No hay vehiculos con ganancia positiva.",
+    colSpan: 5,
+    cells: (row) => `
+      <td>${escapeXml(row.vin)}</td><td>${escapeXml(row.marca)}</td><td>${escapeXml(row.modelo)}</td>
+      <td class="num">${formatAmount(row.ganancia_real)}</td><td class="num">${row.margen_porcentaje.toFixed(2)}%</td>`
+  });
+  const lossTableRows = buildSimpleRows({
+    rows: negativeRows,
+    emptyMessage: "No hay vehiculos con perdida registrada.",
+    colSpan: 4,
+    cells: (row) => `
+      <td>${escapeXml(row.vin)}</td><td>${escapeXml(row.marca)}</td><td>${escapeXml(row.modelo)}</td>
+      <td class="num negative">${formatAmount(row.ganancia_real)}</td>`
+  });
+  const brandTableRows = buildSimpleRows({
+    rows: brands,
+    emptyMessage: "No hay datos por marca para mostrar.",
+    colSpan: 4,
+    cells: (row) => `
+      <td>${escapeXml(row.marca)}</td><td class="num">${formatAmount(row.cantidad)}</td>
+      <td class="num">${formatAmount(row.ganancia_acumulada)}</td><td class="num">${formatAmount(row.ganancia_promedio)}</td>`
+  });
+
+  return `<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <title>Inteligencia de Inventario</title>
+  <style>
+    body { font-family: Arial, sans-serif; color: #1f2937; margin: 24px; }
+    ${pdfBrandStyles}
+    .metrics { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin: 18px 0 20px; }
+    .metric { border: 1px solid #dbeafe; border-left: 4px solid #2563eb; border-radius: 8px; padding: 10px; background: #f8fafc; }
+    .metric p { color: #64748b; font-size: 11px; font-weight: 700; margin: 0 0 6px; text-transform: uppercase; }
+    .metric strong { font-size: 13px; color: #0f172a; overflow-wrap: anywhere; }
+    .section { page-break-inside: avoid; margin-top: 18px; }
+    .section h2 { margin: 0 0 8px; font-size: 16px; color: #0f172a; }
+    table { width: 100%; border-collapse: collapse; font-size: 11px; }
+    th, td { border: 1px solid #e5e7eb; padding: 6px 7px; text-align: left; }
+    th { background: #eff6ff; color: #334155; text-transform: uppercase; }
+    td.num { text-align: right; }
+    .negative { color: #b91c1c; font-weight: 700; }
+    .empty { text-align: center; color: #6b7280; }
+    @media print {
+      body { margin: 10mm; }
+      .metrics { grid-template-columns: repeat(4, 1fr); }
+      tr, .section { page-break-inside: avoid; }
+    }
+  </style>
+</head>
+<body>
+  ${buildPdfBrandHeader({ title: "Inteligencia de Inventario", meta: `Generado: ${generatedAt}` })}
+  <section class="metrics">${metricCards}</section>
+  <section class="section"><h2>Vehiculos con mas tiempo en inventario</h2><table><thead><tr><th>VIN</th><th>Marca</th><th>Modelo</th><th>Ano</th><th>Estado</th><th>Dias</th></tr></thead><tbody>${ageTableRows}</tbody></table></section>
+  <section class="section"><h2>Top vehiculos mas rentables</h2><table><thead><tr><th>VIN</th><th>Marca</th><th>Modelo</th><th>Ganancia real</th><th>Margen</th></tr></thead><tbody>${profitableTableRows}</tbody></table></section>
+  <section class="section"><h2>Vehiculos con perdida</h2><table><thead><tr><th>VIN</th><th>Marca</th><th>Modelo</th><th>Ganancia real</th></tr></thead><tbody>${lossTableRows}</tbody></table></section>
+  <section class="section"><h2>Ranking por marca</h2><table><thead><tr><th>Marca</th><th>Cantidad</th><th>Ganancia acumulada</th><th>Ganancia promedio</th></tr></thead><tbody>${brandTableRows}</tbody></table></section>
+</body>
+</html>`;
+};
+
 const exportReportToPdf = ({ reportRows, estadoLabel, printWindow }) => {
   if (!reportRows.length) {
     throw new Error("No hay datos para exportar.");
@@ -778,6 +1088,31 @@ const exportFinancialReportToPdf = ({
   printWindow.document.close();
 };
 
+const exportInventoryIntelligenceToPdf = ({
+  summary,
+  inventoryAgeRows,
+  profitableRows,
+  lossRows,
+  brandRows,
+  estadoLabel,
+  printWindow
+}) => {
+  if (!printWindow) {
+    throw new Error("No se pudo abrir la ventana de impresion. Habilita los pop-ups e intentalo de nuevo.");
+  }
+
+  printWindow.onload = () => {
+    printWindow.focus();
+    printWindow.print();
+  };
+
+  printWindow.document.open();
+  printWindow.document.write(
+    buildInventoryIntelligencePdfHtml({ summary, inventoryAgeRows, profitableRows, lossRows, brandRows, estadoLabel })
+  );
+  printWindow.document.close();
+};
+
 export const exportCostReport = ({ format = EXPORT_FORMATS.XLSX, reportRows, estadoLabel, printWindow = null }) => {
   if (format === EXPORT_FORMATS.XLSX) {
     exportReportToXlsx({ reportRows, estadoLabel });
@@ -825,6 +1160,29 @@ export const exportFinancialReport = ({
   }
 
   throw new Error("Formato de exportaciÃ³n no soportado.");
+};
+
+export const exportInventoryIntelligenceReport = ({
+  format = EXPORT_FORMATS.XLSX,
+  summary,
+  inventoryAgeRows,
+  profitableRows,
+  lossRows,
+  brandRows,
+  estadoLabel,
+  printWindow = null
+}) => {
+  if (format === EXPORT_FORMATS.XLSX) {
+    exportInventoryIntelligenceToXlsx({ summary, inventoryAgeRows, profitableRows, lossRows, brandRows, estadoLabel });
+    return;
+  }
+
+  if (format === EXPORT_FORMATS.PDF) {
+    exportInventoryIntelligenceToPdf({ summary, inventoryAgeRows, profitableRows, lossRows, brandRows, estadoLabel, printWindow });
+    return;
+  }
+
+  throw new Error("Formato de exportacion no soportado.");
 };
 
 export { EXPORT_FORMATS };
