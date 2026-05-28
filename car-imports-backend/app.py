@@ -44,6 +44,10 @@ VALID_TIPOS_COSTO = [
     "documentacion","compra",
     "otros",
 ]
+
+VALID_QUOTE_STATUSES = ["borrador", "emitida", "cancelada", "vencida", "aprobada"]
+
+
 def get_connection():
     return psycopg2.connect(
         host="127.0.0.1",
@@ -549,6 +553,96 @@ def serialize_profit_row(row):
         "total_venta": total_venta,
         "ganancia_real": ganancia_real,
         "margen_porcentaje": margen,
+    }
+
+
+def ensure_quotes_table(conn):
+    cur = conn.cursor()
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS quotes (
+            id SERIAL PRIMARY KEY,
+            vehicle_id INTEGER NOT NULL REFERENCES vehicles(id),
+            customer_name TEXT,
+            customer_document TEXT,
+            customer_phone TEXT,
+            customer_email TEXT,
+            customer_address TEXT,
+            finance_entity TEXT,
+            price_usd NUMERIC(12, 2) NOT NULL,
+            exchange_rate NUMERIC(12, 4) NOT NULL,
+            price_dop NUMERIC(14, 2) NOT NULL,
+            valid_until DATE,
+            notes TEXT,
+            status TEXT NOT NULL DEFAULT 'emitida',
+            created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+    """)
+    cur.execute("""
+        ALTER TABLE quotes
+        ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP;
+    """)
+    conn.commit()
+    cur.close()
+
+
+def parse_number(value, field_name):
+    if value in (None, ""):
+        return None, {
+            "status": "error",
+            "message": f"{field_name} es obligatorio"
+        }
+
+    try:
+        return float(value), None
+    except (TypeError, ValueError):
+        return None, {
+            "status": "error",
+            "message": f"{field_name} debe ser numerico"
+        }
+
+
+def validate_quote_date(value, field_name="valid_until"):
+    if value in (None, ""):
+        return None, None
+
+    try:
+        return datetime.strptime(value, "%Y-%m-%d").date(), None
+    except ValueError:
+        return None, {
+            "status": "error",
+            "message": f"{field_name} debe tener formato YYYY-MM-DD"
+        }
+
+
+def validate_quote_status(status):
+    if status not in VALID_QUOTE_STATUSES:
+        return {
+            "status": "error",
+            "message": f"status invalido. Usa uno de estos: {VALID_QUOTE_STATUSES}"
+        }
+
+    return None
+
+
+def serialize_quote(row):
+    return {
+        "id": row.get("id"),
+        "vehicle_id": row.get("vehicle_id"),
+        "customer_name": row.get("customer_name"),
+        "customer_document": row.get("customer_document"),
+        "customer_phone": row.get("customer_phone"),
+        "customer_email": row.get("customer_email"),
+        "customer_address": row.get("customer_address"),
+        "finance_entity": row.get("finance_entity"),
+        "price_usd": float(row["price_usd"]) if row.get("price_usd") is not None else None,
+        "exchange_rate": float(row["exchange_rate"]) if row.get("exchange_rate") is not None else None,
+        "price_dop": float(row["price_dop"]) if row.get("price_dop") is not None else None,
+        "valid_until": row.get("valid_until"),
+        "notes": row.get("notes"),
+        "status": row.get("status"),
+        "created_at": row.get("created_at"),
+        "updated_at": row.get("updated_at"),
     }
 
 
@@ -1275,6 +1369,359 @@ def get_cost_types():
         }
 
     return {"status": "OK", "data": VALID_TIPOS_COSTO}
+
+
+@app.route("/quotes", methods=["POST"])
+@require_authenticated_active_user
+def create_quote():
+    try:
+        data = request.get_json(silent=True) or {}
+
+        vehicle_id = data.get("vehicle_id")
+        if not vehicle_id:
+            return {"status": "error", "message": "vehicle_id es obligatorio"}, 400
+
+        price_usd, price_usd_error = parse_number(data.get("price_usd"), "price_usd")
+        if price_usd_error:
+            return price_usd_error, 400
+
+        exchange_rate, exchange_rate_error = parse_number(data.get("exchange_rate"), "exchange_rate")
+        if exchange_rate_error:
+            return exchange_rate_error, 400
+
+        if "price_dop" in data and data.get("price_dop") not in (None, ""):
+            price_dop, price_dop_error = parse_number(data.get("price_dop"), "price_dop")
+            if price_dop_error:
+                return price_dop_error, 400
+        else:
+            price_dop = price_usd * exchange_rate
+
+        valid_until, date_error = validate_quote_date(data.get("valid_until"))
+        if date_error:
+            return date_error, 400
+
+        status = data.get("status", "emitida")
+        status_error = validate_quote_status(status)
+        if status_error:
+            return status_error, 400
+
+        conn = get_connection()
+        ensure_quotes_table(conn)
+
+        import psycopg2.extras
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute("SELECT id FROM vehicles WHERE id = %s;", (vehicle_id,))
+        vehicle = cur.fetchone()
+        if not vehicle:
+            cur.close()
+            conn.close()
+            return {"status": "error", "message": f"Vehiculo {vehicle_id} no existe"}, 404
+
+        cur.execute("""
+            INSERT INTO quotes (
+                vehicle_id,
+                customer_name,
+                customer_document,
+                customer_phone,
+                customer_email,
+                customer_address,
+                finance_entity,
+                price_usd,
+                exchange_rate,
+                price_dop,
+                valid_until,
+                notes,
+                status,
+                created_at,
+                updated_at
+            )
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
+            RETURNING *;
+        """, (
+            vehicle_id,
+            data.get("customer_name"),
+            data.get("customer_document"),
+            data.get("customer_phone"),
+            data.get("customer_email"),
+            data.get("customer_address"),
+            data.get("finance_entity"),
+            price_usd,
+            exchange_rate,
+            price_dop,
+            valid_until,
+            data.get("notes"),
+            status,
+        ))
+
+        quote = cur.fetchone()
+        log_audit(conn, "create", "quote", quote["id"], {"payload": data})
+
+        conn.commit()
+        cur.close()
+        conn.close()
+
+        return {
+            "status": "success",
+            "message": "Cotizacion creada correctamente",
+            "data": serialize_quote(quote)
+        }, 201
+
+    except Exception as e:
+        return {"status": "error", "message": str(e)}, 500
+
+
+@app.route("/quotes", methods=["GET"])
+def get_quotes():
+    try:
+        conn = get_connection()
+        ensure_quotes_table(conn)
+
+        import psycopg2.extras
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute("""
+            SELECT *
+            FROM quotes
+            ORDER BY created_at DESC, id DESC;
+        """)
+        rows = cur.fetchall()
+
+        cur.close()
+        conn.close()
+
+        return {"status": "success", "data": [serialize_quote(row) for row in rows]}
+
+    except Exception as e:
+        return {"status": "error", "message": str(e)}, 500
+
+
+@app.route("/quotes/<int:id>", methods=["GET"])
+def get_quote_by_id(id):
+    try:
+        conn = get_connection()
+        ensure_quotes_table(conn)
+
+        import psycopg2.extras
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute("SELECT * FROM quotes WHERE id = %s;", (id,))
+        quote = cur.fetchone()
+
+        cur.close()
+        conn.close()
+
+        if not quote:
+            return {"status": "error", "message": "Cotizacion no encontrada"}, 404
+
+        return {"status": "success", "data": serialize_quote(quote)}
+
+    except Exception as e:
+        return {"status": "error", "message": str(e)}, 500
+
+
+@app.route("/vehicles/<int:vehicle_id>/quotes", methods=["GET"])
+def get_quotes_by_vehicle(vehicle_id):
+    try:
+        conn = get_connection()
+        ensure_quotes_table(conn)
+
+        import psycopg2.extras
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute("SELECT id FROM vehicles WHERE id = %s;", (vehicle_id,))
+        vehicle = cur.fetchone()
+        if not vehicle:
+            cur.close()
+            conn.close()
+            return {"status": "error", "message": f"Vehiculo {vehicle_id} no existe"}, 404
+
+        cur.execute("""
+            SELECT *
+            FROM quotes
+            WHERE vehicle_id = %s
+            ORDER BY created_at DESC, id DESC;
+        """, (vehicle_id,))
+        rows = cur.fetchall()
+
+        cur.close()
+        conn.close()
+
+        return {"status": "success", "data": [serialize_quote(row) for row in rows]}
+
+    except Exception as e:
+        return {"status": "error", "message": str(e)}, 500
+
+
+@app.route("/quotes/<int:id>", methods=["PATCH"])
+@require_authenticated_active_user
+def patch_quote(id):
+    try:
+        data = request.get_json(silent=True) or {}
+
+        if not data:
+            return {"status": "error", "message": "No hay datos para actualizar"}, 400
+
+        conn = get_connection()
+        ensure_quotes_table(conn)
+
+        import psycopg2.extras
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute("SELECT * FROM quotes WHERE id = %s;", (id,))
+        current = cur.fetchone()
+        if not current:
+            cur.close()
+            conn.close()
+            return {"status": "error", "message": "Cotizacion no encontrada"}, 404
+
+        fields = []
+        values = []
+        allowed_text_fields = [
+            "customer_name",
+            "customer_document",
+            "customer_phone",
+            "customer_email",
+            "customer_address",
+            "finance_entity",
+            "notes",
+        ]
+
+        for field in allowed_text_fields:
+            if field in data:
+                fields.append(f"{field} = %s")
+                values.append(data[field])
+
+        if "vehicle_id" in data:
+            cur.execute("SELECT id FROM vehicles WHERE id = %s;", (data["vehicle_id"],))
+            vehicle = cur.fetchone()
+            if not vehicle:
+                cur.close()
+                conn.close()
+                return {"status": "error", "message": f"Vehiculo {data['vehicle_id']} no existe"}, 404
+            fields.append("vehicle_id = %s")
+            values.append(data["vehicle_id"])
+
+        if "valid_until" in data:
+            valid_until, date_error = validate_quote_date(data.get("valid_until"))
+            if date_error:
+                cur.close()
+                conn.close()
+                return date_error, 400
+            fields.append("valid_until = %s")
+            values.append(valid_until)
+
+        if "status" in data:
+            status_error = validate_quote_status(data["status"])
+            if status_error:
+                cur.close()
+                conn.close()
+                return status_error, 400
+            fields.append("status = %s")
+            values.append(data["status"])
+
+        price_usd = float(current["price_usd"])
+        exchange_rate = float(current["exchange_rate"])
+        price_changed = False
+
+        if "price_usd" in data:
+            price_usd, price_usd_error = parse_number(data.get("price_usd"), "price_usd")
+            if price_usd_error:
+                cur.close()
+                conn.close()
+                return price_usd_error, 400
+            fields.append("price_usd = %s")
+            values.append(price_usd)
+            price_changed = True
+
+        if "exchange_rate" in data:
+            exchange_rate, exchange_rate_error = parse_number(data.get("exchange_rate"), "exchange_rate")
+            if exchange_rate_error:
+                cur.close()
+                conn.close()
+                return exchange_rate_error, 400
+            fields.append("exchange_rate = %s")
+            values.append(exchange_rate)
+            price_changed = True
+
+        if "price_dop" in data:
+            price_dop, price_dop_error = parse_number(data.get("price_dop"), "price_dop")
+            if price_dop_error:
+                cur.close()
+                conn.close()
+                return price_dop_error, 400
+            fields.append("price_dop = %s")
+            values.append(price_dop)
+        elif price_changed:
+            fields.append("price_dop = %s")
+            values.append(price_usd * exchange_rate)
+
+        if not fields:
+            cur.close()
+            conn.close()
+            return {"status": "error", "message": "No hay datos para actualizar"}, 400
+
+        fields.append("updated_at = NOW()")
+        values.append(id)
+
+        cur.execute(f"""
+            UPDATE quotes
+            SET {", ".join(fields)}
+            WHERE id = %s
+            RETURNING *;
+        """, tuple(values))
+
+        quote = cur.fetchone()
+        log_audit(conn, "update", "quote", id, {"payload": data})
+
+        conn.commit()
+        cur.close()
+        conn.close()
+
+        return {
+            "status": "success",
+            "message": "Cotizacion actualizada correctamente",
+            "data": serialize_quote(quote)
+        }
+
+    except Exception as e:
+        return {"status": "error", "message": str(e)}, 500
+
+
+@app.route("/quotes/<int:id>", methods=["DELETE"])
+@require_authenticated_active_user
+def delete_quote(id):
+    try:
+        conn = get_connection()
+        ensure_quotes_table(conn)
+
+        import psycopg2.extras
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute("""
+            UPDATE quotes
+            SET status = 'cancelada',
+                updated_at = NOW()
+            WHERE id = %s
+            RETURNING *;
+        """, (id,))
+        quote = cur.fetchone()
+
+        if not quote:
+            conn.commit()
+            cur.close()
+            conn.close()
+            return {"status": "error", "message": "Cotizacion no encontrada"}, 404
+
+        log_audit(conn, "delete", "quote", id, {"status": "cancelada"})
+
+        conn.commit()
+        cur.close()
+        conn.close()
+
+        return {
+            "status": "success",
+            "message": f"Cotizacion {id} cancelada",
+            "data": serialize_quote(quote)
+        }
+
+    except Exception as e:
+        return {"status": "error", "message": str(e)}, 500
+
 
 @app.route("/sales", methods=["POST"])
 @require_authenticated_active_user
