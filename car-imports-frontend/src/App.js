@@ -1292,6 +1292,28 @@ const formatMoney = (value, currency = "USD") => {
   };
 
 
+  const parseDateValue = (value) => {
+    const normalized = normalizeDateInput(value);
+    if (!normalized) return null;
+
+    const date = new Date(`${normalized}T00:00:00Z`);
+    return Number.isNaN(date.getTime()) ? null : date;
+  };
+
+  const calculateDaysBetween = (startValue, endValue) => {
+    const startDate = parseDateValue(startValue);
+    const endDate = parseDateValue(endValue) || new Date();
+
+    if (!startDate) return null;
+
+    const millisecondsPerDay = 24 * 60 * 60 * 1000;
+    return Math.max(0, Math.floor((endDate - startDate) / millisecondsPerDay));
+  };
+
+  const vehicleDisplayName = (row) =>
+    [row?.marca, row?.modelo, row?.anio].filter(Boolean).join(" ") || row?.vin || "Sin datos";
+
+
   const loadProfitReport = async (filters = financialFilters) => {
     setLoadingProfitReport(true);
 
@@ -1658,6 +1680,67 @@ const formatMoney = (value, currency = "USD") => {
     return true;
   });
 
+  const profitRowsByVehicleId = Object.fromEntries(
+    (profitRows || []).map((row) => [String(row.vehicle_id), row])
+  );
+
+  const inventoryIntelligenceRows = (vehicles || []).map((vehicle) => {
+    const profitRow = profitRowsByVehicleId[String(vehicle.id)] || {};
+    const registrationDate = vehicle.created_at || vehicle.fecha_compra || vehicle.fecha_llegada;
+    const inventoryEndDate = vehicle.estado === "vendido" ? vehicle.fecha_venta : null;
+    const daysInInventory = calculateDaysBetween(registrationDate, inventoryEndDate);
+
+    return {
+      vehicle_id: vehicle.id,
+      vin: vehicle.vin,
+      marca: vehicle.marca,
+      modelo: vehicle.modelo,
+      anio: vehicle.anio,
+      estado: vehicle.estado,
+      dias_inventario: daysInInventory,
+      ganancia_real: Number(profitRow.ganancia_real || 0),
+      margen_porcentaje: Number(profitRow.margen_porcentaje || 0),
+      total_costos: Number(profitRow.total_costos || 0),
+      total_venta: Number(profitRow.total_venta || 0),
+      precio_estimado: Number(vehicle.precio_estimado || profitRow.precio_estimado || 0)
+    };
+  });
+
+  const sortedInventoryAgeRows = [...inventoryIntelligenceRows]
+    .filter((row) => row.dias_inventario !== null)
+    .sort((a, b) => Number(b.dias_inventario || 0) - Number(a.dias_inventario || 0));
+
+  const topInventoryAgeRows = sortedInventoryAgeRows.slice(0, 10);
+  const topProfitableRows = [...inventoryIntelligenceRows]
+    .filter((row) => row.ganancia_real > 0)
+    .sort((a, b) => b.ganancia_real - a.ganancia_real)
+    .slice(0, 10);
+  const lossRows = [...inventoryIntelligenceRows]
+    .filter((row) => row.ganancia_real < 0)
+    .sort((a, b) => a.ganancia_real - b.ganancia_real);
+
+  const brandRankingRows = Object.values(
+    inventoryIntelligenceRows.reduce((acc, row) => {
+      const brand = row.marca || "Sin marca";
+      acc[brand] = acc[brand] || { marca: brand, cantidad: 0, ganancia_acumulada: 0 };
+      acc[brand].cantidad += 1;
+      acc[brand].ganancia_acumulada += Number(row.ganancia_real || 0);
+      return acc;
+    }, {})
+  )
+    .map((row) => ({
+      ...row,
+      ganancia_promedio: row.cantidad ? row.ganancia_acumulada / row.cantidad : 0
+    }))
+    .sort((a, b) => b.ganancia_acumulada - a.ganancia_acumulada);
+
+  const averageInventoryDays = sortedInventoryAgeRows.length
+    ? sortedInventoryAgeRows.reduce((acc, row) => acc + Number(row.dias_inventario || 0), 0) / sortedInventoryAgeRows.length
+    : 0;
+  const mostProfitableVehicle = topProfitableRows[0] || null;
+  const highestCostVehicle = [...inventoryIntelligenceRows].sort((a, b) => b.total_costos - a.total_costos)[0] || null;
+  const oldestInventoryVehicle = sortedInventoryAgeRows.find((row) => row.estado !== "vendido") || sortedInventoryAgeRows[0] || null;
+
   const isAdmin = authUser?.role === "admin";
   const tabs = [
     { key: "dashboard", label: "Dashboard" },
@@ -1677,6 +1760,29 @@ const formatMoney = (value, currency = "USD") => {
     { title: "Disponibles", value: disponibles, icon: "🟢", variant: "info" },
     { title: "Vendidos", value: vendidos, icon: "⚫", variant: "dark" },
     { title: "Valor disponible", value: formatMoney(valorDisponible), icon: "💵", variant: "primary" }
+  ];
+
+  const dashboardMetricCards = [
+    ...metricCards,
+    { title: "Dias promedio en inventario", value: `${averageInventoryDays.toFixed(0)} dias`, icon: "DI", variant: "neutral" },
+    {
+      title: "Vehiculo mas rentable",
+      value: mostProfitableVehicle ? `${vehicleDisplayName(mostProfitableVehicle)} · ${formatMoney(mostProfitableVehicle.ganancia_real)}` : "Sin datos",
+      icon: "R",
+      variant: "positive"
+    },
+    {
+      title: "Mayor costo acumulado",
+      value: highestCostVehicle ? `${vehicleDisplayName(highestCostVehicle)} · ${formatMoney(highestCostVehicle.total_costos)}` : "Sin datos",
+      icon: "C",
+      variant: "negative"
+    },
+    {
+      title: "Mas antiguo en inventario",
+      value: oldestInventoryVehicle ? `${vehicleDisplayName(oldestInventoryVehicle)} · ${oldestInventoryVehicle.dias_inventario} dias` : "Sin datos",
+      icon: "A",
+      variant: "neutral"
+    }
   ];
 
   if (authStatus !== "authenticated") {
@@ -1783,7 +1889,7 @@ const formatMoney = (value, currency = "USD") => {
       {activeTab === "dashboard" && (
       <section className="card-section">
         <div className="metrics-grid">
-          {metricCards.map((card) => (
+          {dashboardMetricCards.map((card) => (
             <article key={card.title} className={`metric-card metric-${card.variant}`}>
               <span className="metric-icon">{card.icon}</span>
               <p className="metric-title">{card.title}</p>
@@ -2724,6 +2830,149 @@ const formatMoney = (value, currency = "USD") => {
             </article>
           ))}
         </div>
+        <div className="inventory-intelligence-section">
+          <div className="profit-detail-heading">
+            <h3>Inteligencia de Inventario</h3>
+            <p className="panel-subtitle">Indicadores calculados con vehiculos, costos y ganancias existentes.</p>
+          </div>
+
+          <div className="intelligence-grid">
+            <article className="intelligence-card">
+              <h4>Vehiculos con mas tiempo en inventario</h4>
+              <div className="table-wrapper">
+                <table className="data-table intelligence-table">
+                  <thead>
+                    <tr>
+                      <th>VIN</th>
+                      <th>Marca</th>
+                      <th>Modelo</th>
+                      <th>Ano</th>
+                      <th>Estado</th>
+                      <th className="numeric">Dias</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {topInventoryAgeRows.length === 0 ? (
+                      <tr>
+                        <td colSpan={6} className="report-empty-cell">No hay fechas de registro para calcular dias.</td>
+                      </tr>
+                    ) : (
+                      topInventoryAgeRows.map((row) => (
+                        <tr key={`age-${row.vehicle_id}`}>
+                          <td>{row.vin || "-"}</td>
+                          <td>{row.marca || "-"}</td>
+                          <td>{row.modelo || "-"}</td>
+                          <td>{row.anio || "-"}</td>
+                          <td><span className="status-pill">{estadoLabel(row.estado || "inventario")}</span></td>
+                          <td className="numeric">{row.dias_inventario}</td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </article>
+
+            <article className="intelligence-card">
+              <h4>Top vehiculos mas rentables</h4>
+              <div className="table-wrapper">
+                <table className="data-table intelligence-table">
+                  <thead>
+                    <tr>
+                      <th>VIN</th>
+                      <th>Marca</th>
+                      <th>Modelo</th>
+                      <th className="numeric">Ganancia real</th>
+                      <th className="numeric">Margen</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {topProfitableRows.length === 0 ? (
+                      <tr>
+                        <td colSpan={5} className="report-empty-cell">No hay vehiculos con ganancia positiva.</td>
+                      </tr>
+                    ) : (
+                      topProfitableRows.map((row) => (
+                        <tr key={`profitable-${row.vehicle_id}`}>
+                          <td>{row.vin || "-"}</td>
+                          <td>{row.marca || "-"}</td>
+                          <td>{row.modelo || "-"}</td>
+                          <td className="numeric profit-positive-text">{formatMoney(row.ganancia_real)}</td>
+                          <td className="numeric profit-positive-text">{Number(row.margen_porcentaje || 0).toFixed(2)}%</td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </article>
+
+            <article className="intelligence-card">
+              <h4>Vehiculos con perdida</h4>
+              <div className="table-wrapper">
+                <table className="data-table intelligence-table">
+                  <thead>
+                    <tr>
+                      <th>VIN</th>
+                      <th>Marca</th>
+                      <th>Modelo</th>
+                      <th className="numeric">Ganancia real</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {lossRows.length === 0 ? (
+                      <tr>
+                        <td colSpan={4} className="report-empty-cell">No hay vehiculos con perdida registrada.</td>
+                      </tr>
+                    ) : (
+                      lossRows.map((row) => (
+                        <tr key={`loss-${row.vehicle_id}`}>
+                          <td>{row.vin || "-"}</td>
+                          <td>{row.marca || "-"}</td>
+                          <td>{row.modelo || "-"}</td>
+                          <td className="numeric profit-negative-text">{formatMoney(row.ganancia_real)}</td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </article>
+
+            <article className="intelligence-card intelligence-card-wide">
+              <h4>Indicadores por marca</h4>
+              <div className="table-wrapper">
+                <table className="data-table intelligence-table">
+                  <thead>
+                    <tr>
+                      <th>Marca</th>
+                      <th className="numeric">Cantidad</th>
+                      <th className="numeric">Ganancia acumulada</th>
+                      <th className="numeric">Ganancia promedio</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {brandRankingRows.length === 0 ? (
+                      <tr>
+                        <td colSpan={4} className="report-empty-cell">No hay datos por marca para mostrar.</td>
+                      </tr>
+                    ) : (
+                      brandRankingRows.map((row) => (
+                        <tr key={`brand-${row.marca}`}>
+                          <td>{row.marca}</td>
+                          <td className="numeric">{row.cantidad}</td>
+                          <td className={`numeric profit-value ${row.ganancia_acumulada >= 0 ? "profit-positive-text" : "profit-negative-text"}`}>{formatMoney(row.ganancia_acumulada)}</td>
+                          <td className={`numeric profit-value ${row.ganancia_promedio >= 0 ? "profit-positive-text" : "profit-negative-text"}`}>{formatMoney(row.ganancia_promedio)}</td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </article>
+          </div>
+        </div>
+
         <div className="profit-detail-heading">
           <h3>Analytics</h3>
           <p className="panel-subtitle">Visual ejecutivo basado en el reporte cargado.</p>
