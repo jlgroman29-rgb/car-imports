@@ -189,7 +189,6 @@ function App() {
   const [quotes, setQuotes] = useState([]);
   const [quotesLoading, setQuotesLoading] = useState(false);
   const [quotesMessage, setQuotesMessage] = useState({ type: "", text: "" });
-  const [quoteVehicleSearch, setQuoteVehicleSearch] = useState("");
   const [editingQuoteId, setEditingQuoteId] = useState(null);
   const [quoteForm, setQuoteForm] = useState(EMPTY_QUOTE_FORM);
   const [saleForm, setSaleForm] = useState({
@@ -1112,10 +1111,6 @@ function App() {
   const salesSelectorVehicles = vehicles.filter((vehicle) =>
     vehicleMatchesSelectorSearch(vehicle, salesVehicleSearch) || vehicle.id === selectedSalesVehicle?.id
   );
-  const quoteSelectorVehicles = vehicles.filter((vehicle) =>
-    vehicleMatchesSelectorSearch(vehicle, quoteVehicleSearch) || String(vehicle.id) === String(quoteForm.vehicle_id)
-  );
-
   const totalInventario = vehicles.reduce((acc, v) => acc + Number(v.precio_estimado || 0), 0);
   const disponibles = vehicles.filter((v) => v.estado === "disponible").length;
   const vendidos = vehicles.filter((v) => v.estado === "vendido").length;
@@ -2073,16 +2068,6 @@ const formatMoney = (value, currency = "USD") => {
           )}
 
           <form onSubmit={handleQuoteSubmit} className="form-grid quote-form-grid">
-            <label className="filter-field quote-vehicle-search">
-              <span>Buscar vehiculo</span>
-              <input
-                className="input-control"
-                type="search"
-                placeholder="Marca, modelo, anio o VIN"
-                value={quoteVehicleSearch}
-                onChange={(event) => setQuoteVehicleSearch(event.target.value)}
-              />
-            </label>
             <label className="filter-field quote-vehicle-select">
               <span>Vehiculo</span>
               <select
@@ -2093,7 +2078,7 @@ const formatMoney = (value, currency = "USD") => {
                 required
               >
                 <option value="">Selecciona un vehiculo</option>
-                {quoteSelectorVehicles.map((vehicle) => (
+                {vehicles.map((vehicle) => (
                   <option key={vehicle.id} value={vehicle.id}>
                     {vehicleOptionLabel(vehicle)}
                   </option>

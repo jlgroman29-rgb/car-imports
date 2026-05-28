@@ -434,7 +434,6 @@ h1 {
   align-items: end;
 }
 
-.quote-vehicle-search,
 .quote-vehicle-select,
 .quote-notes,
 .quote-actions {
@@ -649,7 +648,6 @@ h1 {
     grid-template-columns: 1fr;
   }
 
-  .quote-vehicle-search,
   .quote-vehicle-select,
   .quote-notes,
   .quote-actions {
