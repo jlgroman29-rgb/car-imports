@@ -45,7 +45,7 @@ VALID_TIPOS_COSTO = [
     "otros",
 ]
 
-VALID_QUOTE_STATUSES = ["borrador", "emitida", "cancelada", "vencida", "aprobada"]
+VALID_QUOTE_STATUSES = ["borrador", "emitida", "cancelada", "vencida", "aprobada", "convertida"]
 
 
 def get_connection():
