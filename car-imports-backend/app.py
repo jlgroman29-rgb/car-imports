@@ -13,15 +13,44 @@ from flasgger import Swagger
 from flask_cors import CORS
 from werkzeug.security import check_password_hash, generate_password_hash
 
+
+def load_env_file(path):
+    if not os.path.exists(path):
+        return
+
+    with open(path, "r", encoding="utf-8") as env_file:
+        for raw_line in env_file:
+            line = raw_line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+
+            key, value = line.split("=", 1)
+            key = key.strip()
+            value = value.strip().strip('"').strip("'")
+            os.environ.setdefault(key, value)
+
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+load_env_file(os.path.join(BASE_DIR, ".env"))
+
 app = Flask(__name__)
 app.config["AUTH_TOKEN_SECRET"] = (
-    os.environ.get("AUTH_TOKEN_SECRET")
+    os.environ.get("JWT_SECRET")
+    or os.environ.get("AUTH_TOKEN_SECRET")
     or os.environ.get("SECRET_KEY")
     or "dev-auth-secret-change-me"
 )
 app.config["AUTH_TOKEN_EXPIRES_SECONDS"] = int(
     os.environ.get("AUTH_TOKEN_EXPIRES_SECONDS", "86400")
 )
+app.config["FLASK_ENV"] = os.environ.get("FLASK_ENV", "development")
+app.config["DB_CONFIG"] = {
+    "host": os.environ.get("DB_HOST", "127.0.0.1"),
+    "port": int(os.environ.get("DB_PORT", "5433")),
+    "database": os.environ.get("DB_NAME", "car_imports"),
+    "user": os.environ.get("DB_USER", "postgres"),
+    "password": os.environ.get("DB_PASSWORD", "postgres"),
+}
 CORS(app)
 
 VALID_ESTADOS = [
@@ -49,13 +78,7 @@ VALID_QUOTE_STATUSES = ["borrador", "emitida", "cancelada", "vencida", "aprobada
 
 
 def get_connection():
-    return psycopg2.connect(
-        host="127.0.0.1",
-        port=5433,
-        database="car_imports",
-        user="postgres",
-        password="postgres",
-    )
+    return psycopg2.connect(**app.config["DB_CONFIG"])
 
 
 def ensure_users_table(conn):
@@ -2695,4 +2718,4 @@ def debug_db():
 
 if __name__ == "__main__":
     Swagger(app)
-    app.run(debug=True)
+    app.run(debug=app.config["FLASK_ENV"] != "production")

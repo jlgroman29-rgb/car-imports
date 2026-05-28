@@ -1,17 +1,46 @@
-# Node / React
-car-imports-frontend/node_modules/
-car-imports-frontend/build/
+# Environment / secrets
+.env
+.env.*
+!.env.example
+car-imports-backend/.env
+car-imports-backend/.env.*
+!car-imports-backend/.env.example
+
+# Logs and runtime files
+logs/
+*.log
+*.pid
 
 # Python / Flask
+venv/
+.venv/
 car-imports-backend/venv/
-car-imports-backend/__pycache__/
-car-imports-backend/*.pyc
+car-imports-backend/.venv/
+__pycache__/
+**/__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
 
-# Env / secrets
-car-imports-backend/.env
-.env
+# Node / React
+node_modules/
+**/node_modules/
+car-imports-frontend/build/
+build/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
+*.swp
+~$*
 
 # OS / editor
 .DS_Store
 Thumbs.db
+desktop.ini
 .vscode/
+.idea/
