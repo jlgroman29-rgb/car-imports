@@ -1588,9 +1588,9 @@ const formatMoney = (value, currency = "USD") => {
   const tabs = [
     { key: "dashboard", label: "Dashboard" },
     { key: "vehiculos", label: "Vehículos" },
-    { key: "cotizaciones", label: "Cotizaciones" },
     { key: "costos", label: "Costos" },
     { key: "ventas", label: "Ventas" },
+    { key: "cotizaciones", label: "Cotizaciones" },
     { key: "reportes", label: "Reportes" },
     { key: "analytics", label: "Analytics" },
     { key: "usuarios", label: "Usuarios", adminOnly: true },
