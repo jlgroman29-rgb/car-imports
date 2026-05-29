@@ -55,9 +55,22 @@ app.config["DB_CONFIG"] = {
 }
 app.config["VEHICLE_UPLOAD_FOLDER"] = os.path.join(BASE_DIR, "uploads", "vehicles")
 app.config["VEHICLE_IMAGE_MAX_BYTES"] = 5 * 1024 * 1024
+app.config["VEHICLE_DOCUMENT_UPLOAD_FOLDER"] = os.path.join(BASE_DIR, "uploads", "vehicle_documents")
+app.config["VEHICLE_DOCUMENT_MAX_BYTES"] = 10 * 1024 * 1024
 CORS(app)
 
 ALLOWED_VEHICLE_IMAGE_EXTENSIONS = {"jpg", "jpeg", "png", "webp"}
+ALLOWED_VEHICLE_DOCUMENT_EXTENSIONS = {"pdf", "jpg", "jpeg", "png", "webp"}
+
+VALID_VEHICLE_DOCUMENT_TYPES = [
+    "factura_subasta",
+    "titulo",
+    "liquidacion_aduana",
+    "matricula_dgii",
+    "seguro",
+    "inspeccion",
+    "otros"
+]
 
 VALID_ESTADOS = [
     "comprado",
@@ -135,6 +148,32 @@ def ensure_vehicle_upload_folder():
     os.makedirs(app.config["VEHICLE_UPLOAD_FOLDER"], exist_ok=True)
 
 
+def ensure_vehicle_document_upload_folder():
+    os.makedirs(app.config["VEHICLE_DOCUMENT_UPLOAD_FOLDER"], exist_ok=True)
+
+
+def ensure_vehicle_documents_table(conn):
+    ensure_users_table(conn)
+    cur = conn.cursor()
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS vehicle_documents (
+            id SERIAL PRIMARY KEY,
+            vehicle_id INTEGER NOT NULL REFERENCES vehicles(id) ON DELETE CASCADE,
+            document_type TEXT NOT NULL,
+            original_file_name TEXT NOT NULL,
+            stored_file_name TEXT NOT NULL,
+            file_path TEXT NOT NULL,
+            mime_type TEXT,
+            file_size INTEGER NOT NULL,
+            notes TEXT,
+            uploaded_by INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
+            created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+    """)
+    conn.commit()
+    cur.close()
+
+
 def get_file_extension(filename):
     if "." not in filename:
         return ""
@@ -146,8 +185,29 @@ def is_allowed_vehicle_image(filename):
     return get_file_extension(filename) in ALLOWED_VEHICLE_IMAGE_EXTENSIONS
 
 
+def is_allowed_vehicle_document(filename):
+    return get_file_extension(filename) in ALLOWED_VEHICLE_DOCUMENT_EXTENSIONS
+
+
 def build_vehicle_image_url(filename):
     return f"{request.host_url.rstrip('/')}/uploads/vehicles/{filename}"
+
+
+def serialize_vehicle_document(row):
+    return {
+        "id": row.get("id"),
+        "vehicle_id": row.get("vehicle_id"),
+        "document_type": row.get("document_type"),
+        "original_file_name": row.get("original_file_name"),
+        "stored_file_name": row.get("stored_file_name"),
+        "file_path": row.get("file_path"),
+        "mime_type": row.get("mime_type"),
+        "file_size": row.get("file_size"),
+        "notes": row.get("notes"),
+        "uploaded_by": row.get("uploaded_by"),
+        "created_at": row.get("created_at"),
+        "download_url": f"{request.host_url.rstrip('/')}/vehicle-documents/{row.get('id')}/download"
+    }
 
 
 VALID_USER_ROLES = ["admin", "user"]
@@ -1395,6 +1455,242 @@ def upload_vehicle_image(vehicle_id):
 def serve_vehicle_image(filename):
     ensure_vehicle_upload_folder()
     return send_from_directory(app.config["VEHICLE_UPLOAD_FOLDER"], filename)
+
+
+@app.route("/vehicles/<int:vehicle_id>/documents", methods=["POST"])
+@require_authenticated_active_user
+def upload_vehicle_document(vehicle_id):
+    try:
+        if request.content_length and request.content_length > app.config["VEHICLE_DOCUMENT_MAX_BYTES"]:
+            return {
+                "status": "error",
+                "message": "El documento excede el tamaño máximo permitido de 10 MB"
+            }, 413
+
+        document_type = (request.form.get("document_type") or "").strip()
+        notes = request.form.get("notes")
+
+        if document_type not in VALID_VEHICLE_DOCUMENT_TYPES:
+            return {
+                "status": "error",
+                "message": f"document_type inválido. Usa uno de estos: {VALID_VEHICLE_DOCUMENT_TYPES}"
+            }, 400
+
+        if "file" not in request.files:
+            return {
+                "status": "error",
+                "message": "Debes enviar un archivo en el campo file"
+            }, 400
+
+        file = request.files["file"]
+        if not file or file.filename == "":
+            return {
+                "status": "error",
+                "message": "Debes seleccionar un archivo"
+            }, 400
+
+        if not is_allowed_vehicle_document(file.filename):
+            return {
+                "status": "error",
+                "message": "Tipo de documento no permitido. Usa pdf, jpg, jpeg, png o webp"
+            }, 400
+
+        conn = get_connection()
+        ensure_vehicle_documents_table(conn)
+
+        import psycopg2.extras
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute("SELECT id FROM vehicles WHERE id = %s;", (vehicle_id,))
+        vehicle = cur.fetchone()
+
+        if not vehicle:
+            cur.close()
+            conn.close()
+            return {"status": "error", "message": "Vehículo no encontrado"}, 404
+
+        ensure_vehicle_document_upload_folder()
+        original_file_name = secure_filename(file.filename)
+        extension = get_file_extension(original_file_name)
+        stored_file_name = f"vehicle_{vehicle_id}_{document_type}_{int(time.time())}_{uuid.uuid4().hex}.{extension}"
+        file_path = os.path.join(app.config["VEHICLE_DOCUMENT_UPLOAD_FOLDER"], stored_file_name)
+        file.save(file_path)
+        file_size = os.path.getsize(file_path)
+        uploaded_by = get_optional_authenticated_user()
+
+        cur.execute("""
+            INSERT INTO vehicle_documents (
+                vehicle_id,
+                document_type,
+                original_file_name,
+                stored_file_name,
+                file_path,
+                mime_type,
+                file_size,
+                notes,
+                uploaded_by
+            )
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+            RETURNING id, vehicle_id, document_type, original_file_name, stored_file_name,
+                      file_path, mime_type, file_size, notes, uploaded_by, created_at;
+        """, (
+            vehicle_id,
+            document_type,
+            original_file_name,
+            stored_file_name,
+            file_path,
+            file.mimetype,
+            file_size,
+            notes,
+            uploaded_by
+        ))
+        document = cur.fetchone()
+        log_audit(conn, "create", "vehicle_document", document["id"], {
+            "vehicle_id": vehicle_id,
+            "document_type": document_type,
+            "original_file_name": original_file_name,
+            "stored_file_name": stored_file_name
+        })
+
+        conn.commit()
+        cur.close()
+        conn.close()
+
+        return {
+            "status": "OK",
+            "message": "Documento del vehículo subido correctamente",
+            "data": serialize_vehicle_document(document)
+        }, 201
+
+    except Exception as e:
+        return {"status": "error", "message": str(e)}, 500
+
+
+@app.route("/vehicles/<int:vehicle_id>/documents", methods=["GET"])
+def get_vehicle_documents(vehicle_id):
+    try:
+        conn = get_connection()
+        ensure_vehicle_documents_table(conn)
+
+        import psycopg2.extras
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute("SELECT id FROM vehicles WHERE id = %s;", (vehicle_id,))
+        vehicle = cur.fetchone()
+
+        if not vehicle:
+            cur.close()
+            conn.close()
+            return {"status": "error", "message": "Vehículo no encontrado"}, 404
+
+        cur.execute("""
+            SELECT id, vehicle_id, document_type, original_file_name, stored_file_name,
+                   file_path, mime_type, file_size, notes, uploaded_by, created_at
+            FROM vehicle_documents
+            WHERE vehicle_id = %s
+            ORDER BY created_at DESC, id DESC;
+        """, (vehicle_id,))
+        documents = cur.fetchall()
+
+        cur.close()
+        conn.close()
+
+        return {
+            "status": "OK",
+            "data": [serialize_vehicle_document(document) for document in documents]
+        }
+
+    except Exception as e:
+        return {"status": "error", "message": str(e)}, 500
+
+
+@app.route("/vehicle-documents/<int:document_id>/download", methods=["GET"])
+def download_vehicle_document(document_id):
+    try:
+        conn = get_connection()
+        ensure_vehicle_documents_table(conn)
+
+        import psycopg2.extras
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute("""
+            SELECT id, original_file_name, stored_file_name, file_path
+            FROM vehicle_documents
+            WHERE id = %s;
+        """, (document_id,))
+        document = cur.fetchone()
+        cur.close()
+        conn.close()
+
+        if not document:
+            return {"status": "error", "message": "Documento no encontrado"}, 404
+
+        if not os.path.exists(document["file_path"]):
+            return {"status": "error", "message": "Archivo físico no encontrado"}, 404
+
+        return send_from_directory(
+            app.config["VEHICLE_DOCUMENT_UPLOAD_FOLDER"],
+            document["stored_file_name"],
+            as_attachment=True,
+            download_name=document["original_file_name"]
+        )
+
+    except Exception as e:
+        return {"status": "error", "message": str(e)}, 500
+
+
+@app.route("/vehicle-documents/<int:document_id>", methods=["DELETE"])
+@require_authenticated_active_user
+def delete_vehicle_document(document_id):
+    try:
+        conn = get_connection()
+        ensure_vehicle_documents_table(conn)
+
+        import psycopg2.extras
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute("""
+            DELETE FROM vehicle_documents
+            WHERE id = %s
+            RETURNING id, vehicle_id, document_type, original_file_name, stored_file_name,
+                      file_path, mime_type, file_size, notes, uploaded_by, created_at;
+        """, (document_id,))
+        document = cur.fetchone()
+
+        if not document:
+            conn.commit()
+            cur.close()
+            conn.close()
+            return {"status": "error", "message": "Documento no encontrado"}, 404
+
+        file_deleted = False
+        file_delete_error = None
+        if document["file_path"] and os.path.exists(document["file_path"]):
+            try:
+                os.remove(document["file_path"])
+                file_deleted = True
+            except OSError as delete_error:
+                file_delete_error = str(delete_error)
+
+        log_audit(conn, "delete", "vehicle_document", document_id, {
+            "vehicle_id": document["vehicle_id"],
+            "document_type": document["document_type"],
+            "original_file_name": document["original_file_name"],
+            "stored_file_name": document["stored_file_name"],
+            "file_deleted": file_deleted,
+            "file_delete_error": file_delete_error
+        })
+
+        conn.commit()
+        cur.close()
+        conn.close()
+
+        return {
+            "status": "OK",
+            "message": "Documento eliminado correctamente",
+            "file_deleted": file_deleted,
+            "file_delete_error": file_delete_error,
+            "data": serialize_vehicle_document(document)
+        }
+
+    except Exception as e:
+        return {"status": "error", "message": str(e)}, 500
 
 
 @app.route("/vehicles/<int:id>", methods=["DELETE"])
