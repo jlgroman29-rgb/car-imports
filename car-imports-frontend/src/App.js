@@ -10,6 +10,8 @@ const API_BASE_URL = "http://127.0.0.1:5000";
 const AUTH_TOKEN_KEY = "car_imports_access_token";
 const USER_ROLES = ["user", "admin"];
 const TODAY_DATE = new Date().toISOString().split("T")[0];
+const MAX_VEHICLE_IMAGE_BYTES = 5 * 1024 * 1024;
+const ALLOWED_VEHICLE_IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp"];
 const EMPTY_QUOTE_FORM = {
   vehicle_id: "",
   customer_name: "",
@@ -105,6 +107,8 @@ function App() {
   });
   const [localImagePreviewUrl, setLocalImagePreviewUrl] = useState("");
   const [imagePreviewFailed, setImagePreviewFailed] = useState(false);
+  const [selectedVehicleImageFile, setSelectedVehicleImageFile] = useState(null);
+  const [vehicleFormMessage, setVehicleFormMessage] = useState({ type: "", text: "" });
 
   const loadVehicles = () => {
     fetch(`${API_BASE_URL}/vehicles`, { headers: getAuthHeaders() })
@@ -625,6 +629,8 @@ function App() {
   const handleEdit = (vehicle) => {
     clearLocalImagePreview();
     setImagePreviewFailed(false);
+    setSelectedVehicleImageFile(null);
+    setVehicleFormMessage({ type: "", text: "" });
     setForm({
       vin: vehicle.vin || "",
       marca: vehicle.marca || "",
@@ -1098,6 +1104,8 @@ function App() {
     if (e.target.name === "image_url") {
       clearLocalImagePreview();
       setImagePreviewFailed(false);
+      setSelectedVehicleImageFile(null);
+      setVehicleFormMessage({ type: "", text: "" });
     }
 
     setForm({
@@ -1114,13 +1122,35 @@ function App() {
 
       return "";
     });
+    setSelectedVehicleImageFile(null);
   };
 
   const handleLocalImagePreview = (event) => {
     const file = event.target.files?.[0];
     setImagePreviewFailed(false);
+    setVehicleFormMessage({ type: "", text: "" });
 
     if (!file) {
+      return;
+    }
+
+    if (!ALLOWED_VEHICLE_IMAGE_TYPES.includes(file.type)) {
+      clearLocalImagePreview();
+      setVehicleFormMessage({
+        type: "error",
+        text: "Tipo de imagen no permitido. Usa JPG, PNG o WEBP."
+      });
+      event.target.value = "";
+      return;
+    }
+
+    if (file.size > MAX_VEHICLE_IMAGE_BYTES) {
+      clearLocalImagePreview();
+      setVehicleFormMessage({
+        type: "error",
+        text: "La imagen excede el tamaño máximo permitido de 5 MB."
+      });
+      event.target.value = "";
       return;
     }
 
@@ -1132,6 +1162,7 @@ function App() {
 
       return previewUrl;
     });
+    setSelectedVehicleImageFile(file);
     event.target.value = "";
   };
 
@@ -1142,8 +1173,48 @@ function App() {
     });
   };
 
-  const handleSubmit = (e) => {
+  const uploadVehicleImage = async (vehicleId) => {
+    if (!selectedVehicleImageFile) {
+      return null;
+    }
+
+    const imageFormData = new FormData();
+    imageFormData.append("file", selectedVehicleImageFile);
+
+    const response = await fetch(`${API_BASE_URL}/vehicles/${vehicleId}/image`, {
+      method: "POST",
+      headers: getAuthHeaders(),
+      body: imageFormData
+    });
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(parseApiError(data, "No se pudo subir la imagen del vehículo"));
+    }
+
+    return data;
+  };
+
+  const resetVehicleForm = () => {
+    clearLocalImagePreview();
+    setImagePreviewFailed(false);
+    setSelectedVehicleImageFile(null);
+    setForm({
+      vin: "",
+      marca: "",
+      modelo: "",
+      anio: "",
+      estado: "inventario",
+      precio_estimado: "",
+      color: "",
+      image_url: ""
+    });
+    setEditingId(null);
+  };
+
+  const handleSubmit = async (e) => {
     e.preventDefault();
+    setVehicleFormMessage({ type: "", text: "" });
 
     const url = editingId
       ? `${API_BASE_URL}/vehicles/${editingId}`
@@ -1151,37 +1222,52 @@ function App() {
 
     const method = editingId ? "PATCH" : "POST";
 
-    fetch(url, {
-      method,
-      headers: {
-        "Content-Type": "application/json",
-        ...getAuthHeaders()
-      },
-      body: JSON.stringify({
-        ...form,
-        anio: parseInt(form.anio),
-        precio_estimado: form.precio_estimado === "" ? undefined : Number(form.precio_estimado)
-      })
-    })
-      .then((res) => res.json())
-      .then(() => {
-        loadVehicles();
-        clearLocalImagePreview();
-        setImagePreviewFailed(false);
-        setForm({
-          vin: "",
-          marca: "",
-          modelo: "",
-          anio: "",
-          estado: "inventario",
-          precio_estimado: "",
-          color: "",
-          image_url: ""
-        });
+    try {
+      const response = await fetch(url, {
+        method,
+        headers: {
+          "Content-Type": "application/json",
+          ...getAuthHeaders()
+        },
+        body: JSON.stringify({
+          ...form,
+          anio: parseInt(form.anio),
+          precio_estimado: form.precio_estimado === "" ? undefined : Number(form.precio_estimado)
+        })
+      });
+      const data = await response.json();
 
-        setEditingId(null);
-      })
-      .catch((err) => console.error(err));
+      if (!response.ok) {
+        throw new Error(parseApiError(data, "No se pudo guardar el vehículo"));
+      }
+
+      const vehicleId = editingId || data.id;
+      const hadImageUpload = Boolean(selectedVehicleImageFile);
+      if (hadImageUpload) {
+        try {
+          await uploadVehicleImage(vehicleId);
+        } catch (uploadError) {
+          loadVehicles();
+          setEditingId(vehicleId);
+          throw new Error(`Vehículo guardado, pero no se pudo subir la imagen. ${uploadError.message}`);
+        }
+      }
+
+      loadVehicles();
+      resetVehicleForm();
+      setVehicleFormMessage({
+        type: "success",
+        text: hadImageUpload
+          ? "Vehículo guardado e imagen subida correctamente."
+          : "Vehículo guardado correctamente."
+      });
+    } catch (err) {
+      console.error(err);
+      setVehicleFormMessage({
+        type: "error",
+        text: err.message || "No se pudo guardar el vehículo"
+      });
+    }
   };
 
   const filteredVehicles = (vehicles || []).filter((v) => {
@@ -1194,7 +1280,26 @@ function App() {
     return matchSearch && matchEstado;
   });
 
-  const vehicleImagePreviewSrc = localImagePreviewUrl || form.image_url.trim();
+  const resolveVehicleImageUrl = (imageUrl) => {
+    if (!imageUrl) return "";
+
+    if (
+      imageUrl.startsWith("http://") ||
+      imageUrl.startsWith("https://") ||
+      imageUrl.startsWith("data:") ||
+      imageUrl.startsWith("blob:")
+    ) {
+      return imageUrl;
+    }
+
+    if (imageUrl.startsWith("/")) {
+      return `${API_BASE_URL}${imageUrl}`;
+    }
+
+    return imageUrl;
+  };
+
+  const vehicleImagePreviewSrc = localImagePreviewUrl || resolveVehicleImageUrl(form.image_url.trim());
 
   const vehicleOptionLabel = (vehicle) =>
     `${vehicle.marca} ${vehicle.modelo} (${vehicle.anio || "Sin anio"}) - VIN: ${vehicle.vin || "Sin VIN"}`;
@@ -2201,7 +2306,7 @@ const formatMoney = (value, currency = "USD") => {
           <input className="input-control" name="color" placeholder="Color" value={form.color} onChange={handleChange} />
           <input className="input-control" name="image_url" placeholder="Imagen URL" value={form.image_url} onChange={handleChange} />
           <label className="vehicle-preview-picker">
-            <span>Vista local</span>
+            <span>Imagen principal</span>
             <input type="file" accept="image/*" onChange={handleLocalImagePreview} />
           </label>
           <div className="vehicle-image-preview">
@@ -2215,6 +2320,11 @@ const formatMoney = (value, currency = "USD") => {
               <span>Sin vista previa</span>
             )}
           </div>
+          {vehicleFormMessage.text && (
+            <div className={`vehicle-form-message vehicle-form-message-${vehicleFormMessage.type}`}>
+              {vehicleFormMessage.text}
+            </div>
+          )}
           <input className="input-control" name="anio" placeholder="Año" value={form.anio} onChange={handleChange} required />
           <input
             className="input-control"
@@ -2286,7 +2396,7 @@ const formatMoney = (value, currency = "USD") => {
                     {v.image_url ? (
                       <img
                         className="vehicle-thumbnail"
-                        src={v.image_url}
+                        src={resolveVehicleImageUrl(v.image_url)}
                         alt={`${v.marca} ${v.modelo}`}
                         loading="lazy"
                         onError={(event) => {
