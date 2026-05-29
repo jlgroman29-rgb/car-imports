@@ -99,8 +99,12 @@ function App() {
     modelo: "",
     anio: "",
     estado: "inventario",
-    precio_estimado: ""
+    precio_estimado: "",
+    color: "",
+    image_url: ""
   });
+  const [localImagePreviewUrl, setLocalImagePreviewUrl] = useState("");
+  const [imagePreviewFailed, setImagePreviewFailed] = useState(false);
 
   const loadVehicles = () => {
     fetch(`${API_BASE_URL}/vehicles`, { headers: getAuthHeaders() })
@@ -619,6 +623,8 @@ function App() {
   };
 
   const handleEdit = (vehicle) => {
+    clearLocalImagePreview();
+    setImagePreviewFailed(false);
     setForm({
       vin: vehicle.vin || "",
       marca: vehicle.marca || "",
@@ -628,7 +634,9 @@ function App() {
       precio_estimado:
         vehicle.precio_estimado !== null && vehicle.precio_estimado !== undefined
           ? String(vehicle.precio_estimado)
-          : ""
+          : "",
+      color: vehicle.color || "",
+      image_url: vehicle.image_url || ""
     });
 
     setEditingId(vehicle.id);
@@ -1064,6 +1072,14 @@ function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authStatus, authUser?.role, activeTab]);
 
+  useEffect(() => {
+    return () => {
+      if (localImagePreviewUrl) {
+        URL.revokeObjectURL(localImagePreviewUrl);
+      }
+    };
+  }, [localImagePreviewUrl]);
+
   const deleteVehicle = (id) => {
     if (!window.confirm("¿Seguro que deseas eliminar este vehículo?")) return;
 
@@ -1079,10 +1095,44 @@ function App() {
   };
 
   const handleChange = (e) => {
+    if (e.target.name === "image_url") {
+      clearLocalImagePreview();
+      setImagePreviewFailed(false);
+    }
+
     setForm({
       ...form,
       [e.target.name]: e.target.value
     });
+  };
+
+  const clearLocalImagePreview = () => {
+    setLocalImagePreviewUrl((currentUrl) => {
+      if (currentUrl) {
+        URL.revokeObjectURL(currentUrl);
+      }
+
+      return "";
+    });
+  };
+
+  const handleLocalImagePreview = (event) => {
+    const file = event.target.files?.[0];
+    setImagePreviewFailed(false);
+
+    if (!file) {
+      return;
+    }
+
+    const previewUrl = URL.createObjectURL(file);
+    setLocalImagePreviewUrl((currentUrl) => {
+      if (currentUrl) {
+        URL.revokeObjectURL(currentUrl);
+      }
+
+      return previewUrl;
+    });
+    event.target.value = "";
   };
 
   const handleCostChange = (e) => {
@@ -1116,13 +1166,17 @@ function App() {
       .then((res) => res.json())
       .then(() => {
         loadVehicles();
+        clearLocalImagePreview();
+        setImagePreviewFailed(false);
         setForm({
           vin: "",
           marca: "",
           modelo: "",
           anio: "",
           estado: "inventario",
-          precio_estimado: ""
+          precio_estimado: "",
+          color: "",
+          image_url: ""
         });
 
         setEditingId(null);
@@ -1139,6 +1193,8 @@ function App() {
 
     return matchSearch && matchEstado;
   });
+
+  const vehicleImagePreviewSrc = localImagePreviewUrl || form.image_url.trim();
 
   const vehicleOptionLabel = (vehicle) =>
     `${vehicle.marca} ${vehicle.modelo} (${vehicle.anio || "Sin anio"}) - VIN: ${vehicle.vin || "Sin VIN"}`;
@@ -2142,6 +2198,23 @@ const formatMoney = (value, currency = "USD") => {
           <input className="input-control" name="vin" placeholder="VIN" value={form.vin} onChange={handleChange} required />
           <input className="input-control" name="marca" placeholder="Marca" value={form.marca} onChange={handleChange} required />
           <input className="input-control" name="modelo" placeholder="Modelo" value={form.modelo} onChange={handleChange} required />
+          <input className="input-control" name="color" placeholder="Color" value={form.color} onChange={handleChange} />
+          <input className="input-control" name="image_url" placeholder="Imagen URL" value={form.image_url} onChange={handleChange} />
+          <label className="vehicle-preview-picker">
+            <span>Vista local</span>
+            <input type="file" accept="image/*" onChange={handleLocalImagePreview} />
+          </label>
+          <div className="vehicle-image-preview">
+            {vehicleImagePreviewSrc && !imagePreviewFailed ? (
+              <img
+                src={vehicleImagePreviewSrc}
+                alt="Vista previa del vehiculo"
+                onError={() => setImagePreviewFailed(true)}
+              />
+            ) : (
+              <span>Sin vista previa</span>
+            )}
+          </div>
           <input className="input-control" name="anio" placeholder="Año" value={form.anio} onChange={handleChange} required />
           <input
             className="input-control"
@@ -2194,6 +2267,8 @@ const formatMoney = (value, currency = "USD") => {
                 <th>ID</th>
                 <th>Marca</th>
                 <th>Modelo</th>
+                <th>Color</th>
+                <th>Imagen</th>
                 <th>Año</th>
                 <th className="numeric">Precio</th>
                 <th>Estado</th>
@@ -2206,6 +2281,22 @@ const formatMoney = (value, currency = "USD") => {
                   <td>{v.id}</td>
                   <td>{v.marca}</td>
                   <td>{v.modelo}</td>
+                  <td>{v.color || "Sin color"}</td>
+                  <td>
+                    {v.image_url ? (
+                      <img
+                        className="vehicle-thumbnail"
+                        src={v.image_url}
+                        alt={`${v.marca} ${v.modelo}`}
+                        loading="lazy"
+                        onError={(event) => {
+                          event.currentTarget.style.display = "none";
+                        }}
+                      />
+                    ) : (
+                      <span className="vehicle-thumbnail-placeholder">Sin imagen</span>
+                    )}
+                  </td>
                   <td>{v.anio}</td>
                   <td className="numeric">{formatMoney(v.precio_estimado)}</td>
                   <td>
