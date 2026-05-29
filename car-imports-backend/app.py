@@ -111,6 +111,20 @@ def ensure_users_table(conn):
     cur.close()
 
 
+def ensure_vehicle_media_columns(conn):
+    cur = conn.cursor()
+    cur.execute("""
+        ALTER TABLE vehicles
+        ADD COLUMN IF NOT EXISTS color TEXT;
+    """)
+    cur.execute("""
+        ALTER TABLE vehicles
+        ADD COLUMN IF NOT EXISTS image_url TEXT;
+    """)
+    conn.commit()
+    cur.close()
+
+
 VALID_USER_ROLES = ["admin", "user"]
 
 
@@ -458,6 +472,16 @@ def build_date_filter_clause(column_name, start_date, end_date, table_alias=None
     return " AND " + " AND ".join(filters), params
 
 def map_vehicle(row):
+    color = None
+    image_url = None
+
+    if hasattr(row, "get"):
+        color = row.get("color")
+        image_url = row.get("image_url")
+    else:
+        color = row[11] if len(row) > 11 else None
+        image_url = row[12] if len(row) > 12 else None
+
     return {
         "id": row[0],
         "vin": row[1],
@@ -469,7 +493,9 @@ def map_vehicle(row):
         "fecha_llegada": row[7],
         "precio_estimado": float(row[8]) if row[8] else 0,
         "fecha_venta": row[9],
-        "created_at": row[10]
+        "created_at": row[10],
+        "color": color,
+        "image_url": image_url
     }
 
 def validar_estado(data):
@@ -1081,6 +1107,7 @@ def test_db():
 def get_vehicles():
     try:
         conn = get_connection()
+        ensure_vehicle_media_columns(conn)
 
         import psycopg2.extras
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
@@ -1097,7 +1124,9 @@ def get_vehicles():
                 fecha_compra,
                 fecha_llegada,
                 fecha_venta,
-                created_at
+                created_at,
+                color,
+                image_url
             FROM vehicles
             WHERE 1=1
         """)
@@ -1129,6 +1158,7 @@ def create_vehicle():
             return validation_error
 
         conn = get_connection()
+        ensure_vehicle_media_columns(conn)
         cur = conn.cursor()
 
         query = """
@@ -1142,9 +1172,11 @@ def create_vehicle():
             fecha_llegada,
             precio_estimado,
             fecha_venta,
+            color,
+            image_url,
             created_at
         )
-        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s, NOW())
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s, NOW())
         RETURNING id;
         """
 
@@ -1157,7 +1189,9 @@ def create_vehicle():
             data.get("fecha_compra"),
             data.get("fecha_llegada"),
             data.get("precio_estimado", 0),
-            data.get("fecha_venta")
+            data.get("fecha_venta"),
+            data.get("color"),
+            data.get("image_url")
         ))
 
         vehicle_id = cur.fetchone()[0]
@@ -1187,17 +1221,19 @@ def update_vehicle(id):
         data = request.json
 
         conn = get_connection()
+        ensure_vehicle_media_columns(conn)
         cur = conn.cursor()
 
         query = """
         UPDATE vehicles
-        SET marca=%s, modelo=%s, anio=%s, estado=%s
+        SET marca=%s, modelo=%s, anio=%s, estado=%s, color=%s, image_url=%s
         WHERE id=%s;
         """
 
         cur.execute(
             query, (data["marca"], data["modelo"],
-                    data["anio"], data["estado"], id)
+                    data["anio"], data["estado"], data.get("color"),
+                    data.get("image_url"), id)
         )
         if cur.rowcount == 0:
             conn.commit()
@@ -1220,9 +1256,27 @@ def update_vehicle(id):
 def get_vehicle_by_id(id):
     try:
         conn = get_connection()
+        ensure_vehicle_media_columns(conn)
         cur = conn.cursor()
 
-        cur.execute("SELECT * FROM vehicles WHERE id = %s;", (id,))
+        cur.execute("""
+            SELECT
+                id,
+                vin,
+                marca,
+                modelo,
+                anio,
+                estado,
+                fecha_compra,
+                fecha_llegada,
+                precio_estimado,
+                fecha_venta,
+                created_at,
+                color,
+                image_url
+            FROM vehicles
+            WHERE id = %s;
+        """, (id,))
         row = cur.fetchone()
 
         cur.close()
@@ -1275,6 +1329,7 @@ def patch_vehicle(id):
         data = request.json
 
         conn = get_connection()
+        ensure_vehicle_media_columns(conn)
         cur = conn.cursor()
 
         fields = []
@@ -1300,6 +1355,14 @@ def patch_vehicle(id):
         if "estado" in data:
             fields.append("estado = %s")
             values.append(data["estado"])
+
+        if "color" in data:
+            fields.append("color = %s")
+            values.append(data["color"])
+
+        if "image_url" in data:
+            fields.append("image_url = %s")
+            values.append(data["image_url"])
 
         if "precio_estimado" in data:
             fields.append("precio_estimado = %s")

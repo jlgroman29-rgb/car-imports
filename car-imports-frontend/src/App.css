@@ -335,6 +335,10 @@ h1 {
   min-width: 760px;
 }
 
+.vehicles-table {
+  min-width: 980px;
+}
+
 .data-table th,
 .data-table td {
   padding: 12px;
@@ -366,6 +370,25 @@ h1 {
   padding: 4px 10px;
   font-size: 12px;
   text-transform: capitalize;
+}
+
+.vehicle-thumbnail {
+  width: 64px;
+  height: 44px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  object-fit: cover;
+  background: #f8fafc;
+  display: block;
+}
+
+.vehicle-thumbnail-placeholder {
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+  color: var(--muted);
+  font-size: 12px;
+  white-space: nowrap;
 }
 
 .table-actions {

@@ -99,7 +99,9 @@ function App() {
     modelo: "",
     anio: "",
     estado: "inventario",
-    precio_estimado: ""
+    precio_estimado: "",
+    color: "",
+    image_url: ""
   });
 
   const loadVehicles = () => {
@@ -628,7 +630,9 @@ function App() {
       precio_estimado:
         vehicle.precio_estimado !== null && vehicle.precio_estimado !== undefined
           ? String(vehicle.precio_estimado)
-          : ""
+          : "",
+      color: vehicle.color || "",
+      image_url: vehicle.image_url || ""
     });
 
     setEditingId(vehicle.id);
@@ -1122,7 +1126,9 @@ function App() {
           modelo: "",
           anio: "",
           estado: "inventario",
-          precio_estimado: ""
+          precio_estimado: "",
+          color: "",
+          image_url: ""
         });
 
         setEditingId(null);
@@ -2142,6 +2148,8 @@ const formatMoney = (value, currency = "USD") => {
           <input className="input-control" name="vin" placeholder="VIN" value={form.vin} onChange={handleChange} required />
           <input className="input-control" name="marca" placeholder="Marca" value={form.marca} onChange={handleChange} required />
           <input className="input-control" name="modelo" placeholder="Modelo" value={form.modelo} onChange={handleChange} required />
+          <input className="input-control" name="color" placeholder="Color" value={form.color} onChange={handleChange} />
+          <input className="input-control" name="image_url" placeholder="Imagen URL" value={form.image_url} onChange={handleChange} />
           <input className="input-control" name="anio" placeholder="Año" value={form.anio} onChange={handleChange} required />
           <input
             className="input-control"
@@ -2194,6 +2202,8 @@ const formatMoney = (value, currency = "USD") => {
                 <th>ID</th>
                 <th>Marca</th>
                 <th>Modelo</th>
+                <th>Color</th>
+                <th>Imagen</th>
                 <th>Año</th>
                 <th className="numeric">Precio</th>
                 <th>Estado</th>
@@ -2206,6 +2216,22 @@ const formatMoney = (value, currency = "USD") => {
                   <td>{v.id}</td>
                   <td>{v.marca}</td>
                   <td>{v.modelo}</td>
+                  <td>{v.color || "Sin color"}</td>
+                  <td>
+                    {v.image_url ? (
+                      <img
+                        className="vehicle-thumbnail"
+                        src={v.image_url}
+                        alt={`${v.marca} ${v.modelo}`}
+                        loading="lazy"
+                        onError={(event) => {
+                          event.currentTarget.style.display = "none";
+                        }}
+                      />
+                    ) : (
+                      <span className="vehicle-thumbnail-placeholder">Sin imagen</span>
+                    )}
+                  </td>
                   <td>{v.anio}</td>
                   <td className="numeric">{formatMoney(v.precio_estimado)}</td>
                   <td>
