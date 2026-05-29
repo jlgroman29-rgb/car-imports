@@ -302,6 +302,48 @@ h1 {
   box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.18);
 }
 
+.vehicle-preview-picker {
+  min-height: 42px;
+  border: 1px dashed #94a3b8;
+  border-radius: 10px;
+  padding: 8px 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  color: var(--secondary);
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  background: #f8fafc;
+}
+
+.vehicle-preview-picker input {
+  max-width: 150px;
+  font-size: 12px;
+}
+
+.vehicle-image-preview {
+  min-height: 92px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #f8fafc;
+  padding: 8px;
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.vehicle-image-preview img {
+  width: 100%;
+  max-width: 150px;
+  aspect-ratio: 4 / 3;
+  border-radius: 8px;
+  object-fit: cover;
+  display: block;
+}
+
 .panel-title-row {
   display: flex;
   justify-content: space-between;
