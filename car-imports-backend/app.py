@@ -1,4 +1,4 @@
-from flask import Flask, request
+from flask import Flask, request, send_from_directory
 from datetime import datetime
 import base64
 import hashlib
@@ -7,11 +7,13 @@ import json
 import os
 import psycopg2
 import time
+import uuid
 import click
 from functools import wraps
 from flasgger import Swagger
 from flask_cors import CORS
 from werkzeug.security import check_password_hash, generate_password_hash
+from werkzeug.utils import secure_filename
 
 
 def load_env_file(path):
@@ -51,7 +53,11 @@ app.config["DB_CONFIG"] = {
     "user": os.environ.get("DB_USER", "postgres"),
     "password": os.environ.get("DB_PASSWORD", "postgres"),
 }
+app.config["VEHICLE_UPLOAD_FOLDER"] = os.path.join(BASE_DIR, "uploads", "vehicles")
+app.config["VEHICLE_IMAGE_MAX_BYTES"] = 5 * 1024 * 1024
 CORS(app)
+
+ALLOWED_VEHICLE_IMAGE_EXTENSIONS = {"jpg", "jpeg", "png", "webp"}
 
 VALID_ESTADOS = [
     "comprado",
@@ -123,6 +129,25 @@ def ensure_vehicle_media_columns(conn):
     """)
     conn.commit()
     cur.close()
+
+
+def ensure_vehicle_upload_folder():
+    os.makedirs(app.config["VEHICLE_UPLOAD_FOLDER"], exist_ok=True)
+
+
+def get_file_extension(filename):
+    if "." not in filename:
+        return ""
+
+    return filename.rsplit(".", 1)[1].lower()
+
+
+def is_allowed_vehicle_image(filename):
+    return get_file_extension(filename) in ALLOWED_VEHICLE_IMAGE_EXTENSIONS
+
+
+def build_vehicle_image_url(filename):
+    return f"{request.host_url.rstrip('/')}/uploads/vehicles/{filename}"
 
 
 VALID_USER_ROLES = ["admin", "user"]
@@ -1292,6 +1317,84 @@ def get_vehicle_by_id(id):
 
     except Exception as e:
         return {"error": str(e)}
+
+
+@app.route("/vehicles/<int:vehicle_id>/image", methods=["POST"])
+@require_authenticated_active_user
+def upload_vehicle_image(vehicle_id):
+    try:
+        if request.content_length and request.content_length > app.config["VEHICLE_IMAGE_MAX_BYTES"]:
+            return {
+                "status": "error",
+                "message": "La imagen excede el tamaño máximo permitido de 5 MB"
+            }, 413
+
+        if "file" not in request.files:
+            return {
+                "status": "error",
+                "message": "Debes enviar una imagen en el campo file"
+            }, 400
+
+        file = request.files["file"]
+        if not file or file.filename == "":
+            return {
+                "status": "error",
+                "message": "Debes seleccionar una imagen"
+            }, 400
+
+        if not is_allowed_vehicle_image(file.filename):
+            return {
+                "status": "error",
+                "message": "Tipo de imagen no permitido. Usa jpg, jpeg, png o webp"
+            }, 400
+
+        conn = get_connection()
+        ensure_vehicle_media_columns(conn)
+        cur = conn.cursor()
+        cur.execute("SELECT id FROM vehicles WHERE id = %s;", (vehicle_id,))
+        vehicle = cur.fetchone()
+
+        if not vehicle:
+            cur.close()
+            conn.close()
+            return {"status": "error", "message": "Vehículo no encontrado"}, 404
+
+        ensure_vehicle_upload_folder()
+        extension = get_file_extension(secure_filename(file.filename))
+        filename = f"vehicle_{vehicle_id}_{int(time.time())}_{uuid.uuid4().hex}.{extension}"
+        file_path = os.path.join(app.config["VEHICLE_UPLOAD_FOLDER"], filename)
+        file.save(file_path)
+
+        image_url = build_vehicle_image_url(filename)
+        cur.execute("""
+            UPDATE vehicles
+            SET image_url = %s
+            WHERE id = %s;
+        """, (image_url, vehicle_id))
+        log_audit(conn, "update", "vehicle", vehicle_id, {
+            "image_url": image_url,
+            "filename": filename
+        })
+
+        conn.commit()
+        cur.close()
+        conn.close()
+
+        return {
+            "status": "OK",
+            "message": "Imagen del vehículo subida correctamente",
+            "image_url": image_url,
+            "filename": filename
+        }
+
+    except Exception as e:
+        return {"status": "error", "message": str(e)}, 500
+
+
+@app.route("/uploads/vehicles/<path:filename>", methods=["GET"])
+def serve_vehicle_image(filename):
+    ensure_vehicle_upload_folder()
+    return send_from_directory(app.config["VEHICLE_UPLOAD_FOLDER"], filename)
 
 
 @app.route("/vehicles/<int:id>", methods=["DELETE"])
