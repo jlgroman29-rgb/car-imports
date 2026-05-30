@@ -226,6 +226,7 @@ function App() {
   const [vehicleDocuments, setVehicleDocuments] = useState([]);
   const [vehicleDocumentSummaryById, setVehicleDocumentSummaryById] = useState({});
   const [documentSummaryLoading, setDocumentSummaryLoading] = useState(false);
+  const [documentSummaryError, setDocumentSummaryError] = useState("");
   const [documentsLoading, setDocumentsLoading] = useState(false);
   const [documentUploading, setDocumentUploading] = useState(false);
   const [deletingDocumentId, setDeletingDocumentId] = useState(null);
@@ -272,6 +273,7 @@ function App() {
     setSelectedDocumentVehicle(null);
     setVehicleDocuments([]);
     setVehicleDocumentSummaryById({});
+    setDocumentSummaryError("");
     clearDocumentPreview();
     setDocumentsMessage({ type: "", text: "" });
     setProfitRows([]);
@@ -833,6 +835,7 @@ function App() {
 
   const loadVehicleDocumentSummary = async () => {
     setDocumentSummaryLoading(true);
+    setDocumentSummaryError("");
 
     try {
       const response = await fetch(`${API_BASE_URL}/vehicles/document-summary`, {
@@ -854,7 +857,7 @@ function App() {
       setVehicleDocumentSummaryById(summaryMap);
     } catch (error) {
       console.error("Error cargando resumen documental:", error);
-      setVehicleDocumentSummaryById({});
+      setDocumentSummaryError(error.message || "No se pudo cargar el resumen documental");
     } finally {
       setDocumentSummaryLoading(false);
     }
@@ -1858,6 +1861,12 @@ const formatMoney = (value, currency = "USD") => {
       (type) => `${REQUIRED_VEHICLE_DOCUMENT_LABELS[type] || documentTypeLabel(type)}: ${documentTypes.has(type) ? "Si" : "No"}`
     ).join("\n");
 
+  const getDocumentProgressLabel = (percentage) => {
+    if (documentSummaryError) return "N/D";
+    if (documentSummaryLoading) return "...";
+    return `${percentage}%`;
+  };
+
 
   const parseDateValue = (value) => {
     const normalized = normalizeDateInput(value);
@@ -2802,8 +2811,8 @@ const formatMoney = (value, currency = "USD") => {
             <tbody>
               {filteredVehicles.map((v) => {
                 const documentProgress = getVehicleDocumentProgress(v.id);
-                const progressVariant = getDocumentProgressVariant(documentProgress.percentage);
-                const progressTitle = buildDocumentProgressTitle(documentProgress.documentTypes);
+                const progressVariant = documentSummaryError ? "unavailable" : getDocumentProgressVariant(documentProgress.percentage);
+                const progressTitle = documentSummaryError ? documentSummaryError : buildDocumentProgressTitle(documentProgress.documentTypes);
 
                 return (
                 <tr key={v.id}>
@@ -2836,19 +2845,23 @@ const formatMoney = (value, currency = "USD") => {
                       <summary title={progressTitle}>
                         <span className="document-progress-dot" aria-hidden="true" />
                         <span className="document-progress-value">
-                          {documentSummaryLoading ? "..." : `${documentProgress.percentage}%`}
+                          {getDocumentProgressLabel(documentProgress.percentage)}
                         </span>
                         <span className="document-progress-bar" aria-hidden="true">
-                          <span style={{ width: `${documentProgress.percentage}%` }} />
+                          <span style={{ width: documentSummaryError ? "100%" : `${documentProgress.percentage}%` }} />
                         </span>
                       </summary>
                       <div className="document-progress-detail">
-                        {REQUIRED_VEHICLE_DOCUMENT_TYPES.map((type) => (
-                          <span key={type}>
-                            {REQUIRED_VEHICLE_DOCUMENT_LABELS[type] || documentTypeLabel(type)}:{" "}
-                            <strong>{documentProgress.documentTypes.has(type) ? "Si" : "No"}</strong>
-                          </span>
-                        ))}
+                        {documentSummaryError ? (
+                          <span>No se pudo cargar el resumen documental.</span>
+                        ) : (
+                          REQUIRED_VEHICLE_DOCUMENT_TYPES.map((type) => (
+                            <span key={type}>
+                              {REQUIRED_VEHICLE_DOCUMENT_LABELS[type] || documentTypeLabel(type)}:{" "}
+                              <strong>{documentProgress.documentTypes.has(type) ? "Si" : "No"}</strong>
+                            </span>
+                          ))
+                        )}
                       </div>
                     </details>
                   </td>
