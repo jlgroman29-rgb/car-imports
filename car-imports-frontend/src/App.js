@@ -215,6 +215,8 @@ function App() {
   const [documentUploading, setDocumentUploading] = useState(false);
   const [deletingDocumentId, setDeletingDocumentId] = useState(null);
   const [downloadingDocumentId, setDownloadingDocumentId] = useState(null);
+  const [previewingDocumentId, setPreviewingDocumentId] = useState(null);
+  const [documentPreview, setDocumentPreview] = useState({ document: null, url: "", type: "", error: "" });
   const [documentForm, setDocumentForm] = useState(EMPTY_DOCUMENT_FORM);
   const [documentsMessage, setDocumentsMessage] = useState({ type: "", text: "" });
   const [quotes, setQuotes] = useState([]);
@@ -254,6 +256,7 @@ function App() {
     setQuotes([]);
     setSelectedDocumentVehicle(null);
     setVehicleDocuments([]);
+    clearDocumentPreview();
     setDocumentsMessage({ type: "", text: "" });
     setProfitRows([]);
     setReportRows([]);
@@ -786,6 +789,32 @@ function App() {
     }
   };
 
+  const clearDocumentPreview = () => {
+    setDocumentPreview((currentPreview) => {
+      if (currentPreview.url) {
+        URL.revokeObjectURL(currentPreview.url);
+      }
+
+      return { document: null, url: "", type: "", error: "" };
+    });
+    setPreviewingDocumentId(null);
+  };
+
+  const getDocumentPreviewType = (document, blobType = "") => {
+    const mimeType = String(blobType || document?.mime_type || "").toLowerCase();
+    const fileName = String(document?.original_file_name || "").toLowerCase();
+
+    if (mimeType.startsWith("image/") || /\.(jpg|jpeg|png|webp)$/.test(fileName)) {
+      return "image";
+    }
+
+    if (mimeType === "application/pdf" || fileName.endsWith(".pdf")) {
+      return "pdf";
+    }
+
+    return "";
+  };
+
   const loadVehicleDocuments = async (vehicleId) => {
     if (!vehicleId) {
       setVehicleDocuments([]);
@@ -823,6 +852,7 @@ function App() {
     setSelectedDocumentVehicle(vehicle);
     resetDocumentForm();
     setVehicleDocuments([]);
+    clearDocumentPreview();
     setDocumentsMessage({ type: "", text: "" });
     setActiveTab("documentos");
     loadVehicleDocuments(vehicle.id);
@@ -925,6 +955,76 @@ function App() {
     }
   };
 
+  const handlePreviewDocument = async (document) => {
+    const initialPreviewType = getDocumentPreviewType(document);
+
+    if (!initialPreviewType) {
+      clearDocumentPreview();
+      setDocumentPreview({
+        document,
+        url: "",
+        type: "",
+        error: "Vista previa no disponible para este tipo de archivo. Usa Descargar para abrirlo."
+      });
+      return;
+    }
+
+    setPreviewingDocumentId(document.id);
+    setDocumentsMessage({ type: "", text: "" });
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/vehicle-documents/${document.id}/download`, {
+        headers: getAuthHeaders()
+      });
+
+      if (handleAuthApiStatus(response, setDocumentsMessage)) {
+        return;
+      }
+
+      if (!response.ok) {
+        let payload = {};
+        try {
+          payload = await response.json();
+        } catch (_error) {
+          payload = {};
+        }
+        throw new Error(parseApiError(payload, "No se pudo cargar la vista previa"));
+      }
+
+      const blob = await response.blob();
+      const previewType = getDocumentPreviewType(document, blob.type);
+
+      if (!previewType) {
+        throw new Error("Vista previa no disponible para este tipo de archivo. Usa Descargar para abrirlo.");
+      }
+
+      const previewUrl = URL.createObjectURL(blob);
+      setDocumentPreview((currentPreview) => {
+        if (currentPreview.url) {
+          URL.revokeObjectURL(currentPreview.url);
+        }
+
+        return { document, url: previewUrl, type: previewType, error: "" };
+      });
+    } catch (error) {
+      console.error("Error cargando vista previa:", error);
+      setDocumentPreview((currentPreview) => {
+        if (currentPreview.url) {
+          URL.revokeObjectURL(currentPreview.url);
+        }
+
+        return {
+          document,
+          url: "",
+          type: "",
+          error: error.message || "No se pudo cargar la vista previa"
+        };
+      });
+    } finally {
+      setPreviewingDocumentId(null);
+    }
+  };
+
   const handleDeleteDocument = async (documentId) => {
     if (!window.confirm("Seguro que deseas eliminar este documento?")) return;
 
@@ -947,6 +1047,9 @@ function App() {
       }
 
       setDocumentsMessage({ type: "success", text: "Documento eliminado correctamente." });
+      if (documentPreview.document?.id === documentId) {
+        clearDocumentPreview();
+      }
       if (selectedDocumentVehicle) {
         loadVehicleDocuments(selectedDocumentVehicle.id);
       }
@@ -1224,6 +1327,7 @@ function App() {
     }, millisecondsUntilExpiration);
 
     return () => window.clearTimeout(timeoutId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authStatus, authExpiresAt]);
 
   useEffect(() => {
@@ -1305,6 +1409,14 @@ function App() {
       }
     };
   }, [localImagePreviewUrl]);
+
+  useEffect(() => {
+    return () => {
+      if (documentPreview.url) {
+        URL.revokeObjectURL(documentPreview.url);
+      }
+    };
+  }, [documentPreview.url]);
 
   const deleteVehicle = (id) => {
     if (!window.confirm("¿Seguro que deseas eliminar este vehículo?")) return;
@@ -2795,6 +2907,45 @@ const formatMoney = (value, currency = "USD") => {
                 </button>
               </form>
 
+              {documentPreview.document && (
+                <div className="document-preview-panel">
+                  <div className="document-preview-header">
+                    <div>
+                      <h3>Vista previa</h3>
+                      <p className="panel-subtitle">{documentPreview.document.original_file_name || "Documento"}</p>
+                    </div>
+                    <div className="table-actions">
+                      <button
+                        className="btn btn-secondary"
+                        type="button"
+                        onClick={() => handleDownloadDocument(documentPreview.document)}
+                        disabled={downloadingDocumentId === documentPreview.document.id}
+                      >
+                        {downloadingDocumentId === documentPreview.document.id ? <LoadingSpinner label="Descargando..." /> : "Descargar"}
+                      </button>
+                      <button className="btn btn-secondary" type="button" onClick={clearDocumentPreview}>
+                        Cerrar
+                      </button>
+                    </div>
+                  </div>
+
+                  {documentPreview.error ? (
+                    <div className="selection-empty">{documentPreview.error}</div>
+                  ) : documentPreview.type === "image" ? (
+                    <div className="document-preview-stage document-preview-stage-image">
+                      <img src={documentPreview.url} alt={documentPreview.document.original_file_name || "Vista previa"} />
+                    </div>
+                  ) : (
+                    <div className="document-preview-stage">
+                      <iframe
+                        title={documentPreview.document.original_file_name || "Vista previa del documento"}
+                        src={documentPreview.url}
+                      />
+                    </div>
+                  )}
+                </div>
+              )}
+
               <div className="table-wrapper">
                 <table className="data-table documents-table">
                   <thead>
@@ -2832,6 +2983,14 @@ const formatMoney = (value, currency = "USD") => {
                           <td>{document.notes || "Sin notas"}</td>
                           <td>
                             <div className="table-actions">
+                              <button
+                                className="btn btn-secondary"
+                                type="button"
+                                onClick={() => handlePreviewDocument(document)}
+                                disabled={previewingDocumentId === document.id}
+                              >
+                                {previewingDocumentId === document.id ? <LoadingSpinner label="Cargando..." /> : "Vista previa"}
+                              </button>
                               <button
                                 className="btn btn-primary"
                                 type="button"
