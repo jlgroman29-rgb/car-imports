@@ -1321,13 +1321,6 @@ function App() {
   };
 
   const handleChange = (e) => {
-    if (e.target.name === "image_url") {
-      clearLocalImagePreview();
-      setImagePreviewFailed(false);
-      setSelectedVehicleImageFile(null);
-      setVehicleFormMessage({ type: "", text: "" });
-    }
-
     setForm({
       ...form,
       [e.target.name]: e.target.value
@@ -2535,10 +2528,16 @@ const formatMoney = (value, currency = "USD") => {
           <input className="input-control" name="marca" placeholder="Marca" value={form.marca} onChange={handleChange} required />
           <input className="input-control" name="modelo" placeholder="Modelo" value={form.modelo} onChange={handleChange} required />
           <input className="input-control" name="color" placeholder="Color" value={form.color} onChange={handleChange} />
-          <input className="input-control" name="image_url" placeholder="Imagen URL" value={form.image_url} onChange={handleChange} />
           <label className="vehicle-preview-picker">
             <span>Imagen principal</span>
             <input type="file" accept="image/*" onChange={handleLocalImagePreview} />
+            <small>
+              {selectedVehicleImageFile
+                ? selectedVehicleImageFile.name
+                : editingId
+                  ? "Sube otra imagen para reemplazar la actual"
+                  : "JPG, PNG o WEBP hasta 5 MB"}
+            </small>
           </label>
           <div className="vehicle-image-preview">
             {vehicleImagePreviewSrc && !imagePreviewFailed ? (
