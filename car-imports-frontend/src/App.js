@@ -12,6 +12,20 @@ const USER_ROLES = ["user", "admin"];
 const TODAY_DATE = new Date().toISOString().split("T")[0];
 const MAX_VEHICLE_IMAGE_BYTES = 5 * 1024 * 1024;
 const ALLOWED_VEHICLE_IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp"];
+const VEHICLE_DOCUMENT_TYPES = [
+  "factura_subasta",
+  "titulo",
+  "liquidacion_aduana",
+  "matricula_dgii",
+  "seguro",
+  "inspeccion",
+  "otros"
+];
+const EMPTY_DOCUMENT_FORM = {
+  document_type: "factura_subasta",
+  file: null,
+  notes: ""
+};
 const EMPTY_QUOTE_FORM = {
   vehicle_id: "",
   customer_name: "",
@@ -71,6 +85,7 @@ const LoadingSpinner = ({ label = "Cargando" }) => (
 function App() {
   const initialDataLoadedRef = useRef(false);
   const costReportAutoRequestedRef = useRef(false);
+  const documentFileInputRef = useRef(null);
   const [authStatus, setAuthStatus] = useState("checking");
   const [authUser, setAuthUser] = useState(null);
   const [authExpiresAt, setAuthExpiresAt] = useState(null);
@@ -194,6 +209,14 @@ function App() {
   const [salesVehicleSearch, setSalesVehicleSearch] = useState("");
   const [sales, setSales] = useState([]);
   const [editingSaleId, setEditingSaleId] = useState(null);
+  const [selectedDocumentVehicle, setSelectedDocumentVehicle] = useState(null);
+  const [vehicleDocuments, setVehicleDocuments] = useState([]);
+  const [documentsLoading, setDocumentsLoading] = useState(false);
+  const [documentUploading, setDocumentUploading] = useState(false);
+  const [deletingDocumentId, setDeletingDocumentId] = useState(null);
+  const [downloadingDocumentId, setDownloadingDocumentId] = useState(null);
+  const [documentForm, setDocumentForm] = useState(EMPTY_DOCUMENT_FORM);
+  const [documentsMessage, setDocumentsMessage] = useState({ type: "", text: "" });
   const [quotes, setQuotes] = useState([]);
   const [quotesLoading, setQuotesLoading] = useState(false);
   const [quotesMessage, setQuotesMessage] = useState({ type: "", text: "" });
@@ -229,6 +252,9 @@ function App() {
     setCosts([]);
     setSales([]);
     setQuotes([]);
+    setSelectedDocumentVehicle(null);
+    setVehicleDocuments([]);
+    setDocumentsMessage({ type: "", text: "" });
     setProfitRows([]);
     setReportRows([]);
     setReportVisible(false);
@@ -323,6 +349,21 @@ function App() {
 
   const parseApiError = (payload, fallbackMessage) => {
     return payload?.message || payload?.error || fallbackMessage;
+  };
+
+  const handleAuthApiStatus = (response, setMessage) => {
+    if (response.status === 401) {
+      clearSession();
+      setLoginError("Tu sesion expiro o ya no es valida. Inicia sesion nuevamente.");
+      return true;
+    }
+
+    if (response.status === 403) {
+      setMessage?.({ type: "error", text: "No tienes permisos para realizar esta accion." });
+      return true;
+    }
+
+    return false;
   };
 
   const resetUserForm = () => {
@@ -738,6 +779,185 @@ function App() {
       .catch((err) => console.error(err));
   };
 
+  const resetDocumentForm = () => {
+    setDocumentForm(EMPTY_DOCUMENT_FORM);
+    if (documentFileInputRef.current) {
+      documentFileInputRef.current.value = "";
+    }
+  };
+
+  const loadVehicleDocuments = async (vehicleId) => {
+    if (!vehicleId) {
+      setVehicleDocuments([]);
+      return;
+    }
+
+    setDocumentsLoading(true);
+    setDocumentsMessage({ type: "", text: "" });
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/vehicles/${vehicleId}/documents`, {
+        headers: getAuthHeaders()
+      });
+      const payload = await response.json();
+
+      if (handleAuthApiStatus(response, setDocumentsMessage)) {
+        return;
+      }
+
+      if (!response.ok) {
+        throw new Error(parseApiError(payload, "No se pudieron cargar los documentos del vehiculo"));
+      }
+
+      setVehicleDocuments(payload.data || []);
+    } catch (error) {
+      console.error("Error cargando documentos:", error);
+      setVehicleDocuments([]);
+      setDocumentsMessage({ type: "error", text: error.message || "No se pudieron cargar los documentos del vehiculo" });
+    } finally {
+      setDocumentsLoading(false);
+    }
+  };
+
+  const openVehicleDocuments = (vehicle) => {
+    setSelectedDocumentVehicle(vehicle);
+    resetDocumentForm();
+    setVehicleDocuments([]);
+    setDocumentsMessage({ type: "", text: "" });
+    setActiveTab("documentos");
+    loadVehicleDocuments(vehicle.id);
+  };
+
+  const handleDocumentFormChange = (event) => {
+    const { name, value, files } = event.target;
+    setDocumentsMessage({ type: "", text: "" });
+    setDocumentForm((currentForm) => ({
+      ...currentForm,
+      [name]: name === "file" ? files?.[0] || null : value
+    }));
+  };
+
+  const handleDocumentUpload = async (event) => {
+    event.preventDefault();
+
+    if (!selectedDocumentVehicle) {
+      setDocumentsMessage({ type: "error", text: "Selecciona un vehiculo para subir documentos." });
+      return;
+    }
+
+    if (!documentForm.file) {
+      setDocumentsMessage({ type: "error", text: "Selecciona un archivo para subir." });
+      return;
+    }
+
+    const formData = new FormData();
+    formData.append("document_type", documentForm.document_type);
+    formData.append("file", documentForm.file);
+    formData.append("notes", documentForm.notes);
+
+    setDocumentUploading(true);
+    setDocumentsMessage({ type: "", text: "" });
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/vehicles/${selectedDocumentVehicle.id}/documents`, {
+        method: "POST",
+        headers: getAuthHeaders(),
+        body: formData
+      });
+      const payload = await response.json();
+
+      if (handleAuthApiStatus(response, setDocumentsMessage)) {
+        return;
+      }
+
+      if (!response.ok) {
+        throw new Error(parseApiError(payload, "No se pudo subir el documento"));
+      }
+
+      resetDocumentForm();
+      setDocumentsMessage({ type: "success", text: "Documento subido correctamente." });
+      loadVehicleDocuments(selectedDocumentVehicle.id);
+    } catch (error) {
+      console.error("Error subiendo documento:", error);
+      setDocumentsMessage({ type: "error", text: error.message || "No se pudo subir el documento" });
+    } finally {
+      setDocumentUploading(false);
+    }
+  };
+
+  const handleDownloadDocument = async (document) => {
+    setDownloadingDocumentId(document.id);
+    setDocumentsMessage({ type: "", text: "" });
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/vehicle-documents/${document.id}/download`, {
+        headers: getAuthHeaders()
+      });
+
+      if (handleAuthApiStatus(response, setDocumentsMessage)) {
+        return;
+      }
+
+      if (!response.ok) {
+        let payload = {};
+        try {
+          payload = await response.json();
+        } catch (_error) {
+          payload = {};
+        }
+        throw new Error(parseApiError(payload, "No se pudo descargar el documento"));
+      }
+
+      const blob = await response.blob();
+      const downloadUrl = URL.createObjectURL(blob);
+      const link = window.document.createElement("a");
+      link.href = downloadUrl;
+      link.download = document.original_file_name || "documento";
+      window.document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(downloadUrl);
+    } catch (error) {
+      console.error("Error descargando documento:", error);
+      setDocumentsMessage({ type: "error", text: error.message || "No se pudo descargar el documento" });
+    } finally {
+      setDownloadingDocumentId(null);
+    }
+  };
+
+  const handleDeleteDocument = async (documentId) => {
+    if (!window.confirm("Seguro que deseas eliminar este documento?")) return;
+
+    setDeletingDocumentId(documentId);
+    setDocumentsMessage({ type: "", text: "" });
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/vehicle-documents/${documentId}`, {
+        method: "DELETE",
+        headers: getAuthHeaders()
+      });
+      const payload = await response.json();
+
+      if (handleAuthApiStatus(response, setDocumentsMessage)) {
+        return;
+      }
+
+      if (!response.ok) {
+        throw new Error(parseApiError(payload, "No se pudo eliminar el documento"));
+      }
+
+      setDocumentsMessage({ type: "success", text: "Documento eliminado correctamente." });
+      if (selectedDocumentVehicle) {
+        loadVehicleDocuments(selectedDocumentVehicle.id);
+      }
+    } catch (error) {
+      console.error("Error eliminando documento:", error);
+      setDocumentsMessage({ type: "error", text: error.message || "No se pudo eliminar el documento" });
+    } finally {
+      setDeletingDocumentId(null);
+    }
+  };
+
   const resetQuoteForm = () => {
     setQuoteForm(EMPTY_QUOTE_FORM);
     setEditingQuoteId(null);
@@ -1101,13 +1321,6 @@ function App() {
   };
 
   const handleChange = (e) => {
-    if (e.target.name === "image_url") {
-      clearLocalImagePreview();
-      setImagePreviewFailed(false);
-      setSelectedVehicleImageFile(null);
-      setVehicleFormMessage({ type: "", text: "" });
-    }
-
     setForm({
       ...form,
       [e.target.name]: e.target.value
@@ -1451,6 +1664,16 @@ const formatMoney = (value, currency = "USD") => {
 
     return `${day}/${month}/${year}`;
   };
+
+
+  const formatFileSize = (bytes) => {
+    const size = Number(bytes || 0);
+    if (size < 1024) return `${size} B`;
+    if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
+    return `${(size / (1024 * 1024)).toFixed(1)} MB`;
+  };
+
+  const documentTypeLabel = (type) => String(type || "").replaceAll("_", " ");
 
 
   const parseDateValue = (value) => {
@@ -1946,6 +2169,7 @@ const formatMoney = (value, currency = "USD") => {
   const tabs = [
     { key: "dashboard", label: "Dashboard" },
     { key: "vehiculos", label: "Vehículos" },
+    { key: "documentos", label: "Documentos" },
     { key: "costos", label: "Costos" },
     { key: "ventas", label: "Ventas" },
     { key: "cotizaciones", label: "Cotizaciones" },
@@ -2304,10 +2528,16 @@ const formatMoney = (value, currency = "USD") => {
           <input className="input-control" name="marca" placeholder="Marca" value={form.marca} onChange={handleChange} required />
           <input className="input-control" name="modelo" placeholder="Modelo" value={form.modelo} onChange={handleChange} required />
           <input className="input-control" name="color" placeholder="Color" value={form.color} onChange={handleChange} />
-          <input className="input-control" name="image_url" placeholder="Imagen URL" value={form.image_url} onChange={handleChange} />
           <label className="vehicle-preview-picker">
             <span>Imagen principal</span>
             <input type="file" accept="image/*" onChange={handleLocalImagePreview} />
+            <small>
+              {selectedVehicleImageFile
+                ? selectedVehicleImageFile.name
+                : editingId
+                  ? "Sube otra imagen para reemplazar la actual"
+                  : "JPG, PNG o WEBP hasta 5 MB"}
+            </small>
           </label>
           <div className="vehicle-image-preview">
             {vehicleImagePreviewSrc && !imagePreviewFailed ? (
@@ -2457,6 +2687,9 @@ const formatMoney = (value, currency = "USD") => {
                       >
                         Venta
                       </button>
+                      <button className="btn btn-secondary" type="button" onClick={() => openVehicleDocuments(v)}>
+                        Documentos
+                      </button>
                       {salesByVehicleId[v.id] && (
                         <button className="btn btn-secondary" onClick={() => handlePrintReceipt(v)}>
                           Factura
@@ -2470,6 +2703,162 @@ const formatMoney = (value, currency = "USD") => {
           </table>
         </div>
       </section>
+      )}
+
+      {activeTab === "documentos" && (
+        <section className="panel documents-panel">
+          <div className="panel-title-row">
+            <div>
+              <h2>Documentos</h2>
+              <p className="panel-subtitle">Gestiona archivos digitales asociados a cada vehiculo.</p>
+            </div>
+            {selectedDocumentVehicle && (
+              <button
+                className="btn btn-secondary"
+                type="button"
+                onClick={() => loadVehicleDocuments(selectedDocumentVehicle.id)}
+                disabled={documentsLoading}
+              >
+                {documentsLoading ? <LoadingSpinner label="Actualizando..." /> : "Actualizar"}
+              </button>
+            )}
+          </div>
+
+          {!selectedDocumentVehicle ? (
+            <div className="selection-empty">Selecciona Documentos desde la tabla de vehiculos para comenzar.</div>
+          ) : (
+            <>
+              <article className="document-vehicle-card">
+                <div className="document-vehicle-image">
+                  {selectedDocumentVehicle.image_url ? (
+                    <img
+                      src={resolveVehicleImageUrl(selectedDocumentVehicle.image_url)}
+                      alt={`${selectedDocumentVehicle.marca} ${selectedDocumentVehicle.modelo}`}
+                    />
+                  ) : (
+                    <span>Sin imagen</span>
+                  )}
+                </div>
+                <div className="document-vehicle-details">
+                  <h3>{selectedDocumentVehicle.marca} {selectedDocumentVehicle.modelo}</h3>
+                  <div className="document-vehicle-meta">
+                    <span>VIN: <strong>{selectedDocumentVehicle.vin || "Sin VIN"}</strong></span>
+                    <span>A{"\u00f1"}o: <strong>{selectedDocumentVehicle.anio || `Sin a${"\u00f1"}o`}</strong></span>
+                    <span>Estado: <strong>{estadoLabel(selectedDocumentVehicle.estado || "inventario")}</strong></span>
+                  </div>
+                </div>
+              </article>
+
+              {documentsMessage.text && (
+                <div className={`vehicle-form-message vehicle-form-message-${documentsMessage.type}`}>
+                  {documentsMessage.text}
+                </div>
+              )}
+
+              <form className="form-grid document-form-grid" onSubmit={handleDocumentUpload}>
+                <label className="filter-field">
+                  <span>Tipo de documento</span>
+                  <select
+                    className="input-control"
+                    name="document_type"
+                    value={documentForm.document_type}
+                    onChange={handleDocumentFormChange}
+                    required
+                  >
+                    {VEHICLE_DOCUMENT_TYPES.map((type) => (
+                      <option key={type} value={type}>
+                        {documentTypeLabel(type)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="vehicle-preview-picker document-file-picker">
+                  <span>Archivo</span>
+                  <input
+                    ref={documentFileInputRef}
+                    type="file"
+                    name="file"
+                    accept=".pdf,image/jpeg,image/png,image/webp"
+                    onChange={handleDocumentFormChange}
+                    required
+                  />
+                </label>
+                <textarea
+                  className="input-control document-notes"
+                  name="notes"
+                  placeholder="Notas"
+                  value={documentForm.notes}
+                  onChange={handleDocumentFormChange}
+                />
+                <button className="btn btn-primary" type="submit" disabled={documentUploading}>
+                  {documentUploading ? <LoadingSpinner label="Subiendo..." /> : "Subir documento"}
+                </button>
+              </form>
+
+              <div className="table-wrapper">
+                <table className="data-table documents-table">
+                  <thead>
+                    <tr>
+                      <th>Tipo</th>
+                      <th>Nombre archivo</th>
+                      <th>Tama{"\u00f1"}o</th>
+                      <th>Fecha</th>
+                      <th>Notas</th>
+                      <th>Acciones</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {documentsLoading ? (
+                      <tr>
+                        <td colSpan={6} className="report-empty-cell">
+                          <LoadingSpinner label="Cargando documentos..." />
+                        </td>
+                      </tr>
+                    ) : vehicleDocuments.length === 0 ? (
+                      <tr>
+                        <td colSpan={6} className="report-empty-cell">
+                          No hay documentos para este vehiculo.
+                        </td>
+                      </tr>
+                    ) : (
+                      vehicleDocuments.map((document) => (
+                        <tr key={document.id}>
+                          <td>
+                            <span className="status-pill">{documentTypeLabel(document.document_type)}</span>
+                          </td>
+                          <td>{document.original_file_name || "Sin nombre"}</td>
+                          <td>{formatFileSize(document.file_size)}</td>
+                          <td>{formatDate(document.created_at)}</td>
+                          <td>{document.notes || "Sin notas"}</td>
+                          <td>
+                            <div className="table-actions">
+                              <button
+                                className="btn btn-primary"
+                                type="button"
+                                onClick={() => handleDownloadDocument(document)}
+                                disabled={downloadingDocumentId === document.id}
+                              >
+                                {downloadingDocumentId === document.id ? <LoadingSpinner label="Descargando..." /> : "Descargar"}
+                              </button>
+                              <button
+                                className="btn btn-danger"
+                                type="button"
+                                onClick={() => handleDeleteDocument(document.id)}
+                                disabled={deletingDocumentId === document.id}
+                              >
+                                {deletingDocumentId === document.id ? <LoadingSpinner label="Eliminando..." /> : "Eliminar"}
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )}
+        </section>
       )}
 
       {activeTab === "cotizaciones" && (
