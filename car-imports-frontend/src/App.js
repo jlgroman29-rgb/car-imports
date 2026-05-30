@@ -21,6 +21,18 @@ const VEHICLE_DOCUMENT_TYPES = [
   "inspeccion",
   "otros"
 ];
+const REQUIRED_VEHICLE_DOCUMENT_TYPES = [
+  "factura_subasta",
+  "titulo",
+  "liquidacion_aduana",
+  "matricula_dgii"
+];
+const REQUIRED_VEHICLE_DOCUMENT_LABELS = {
+  factura_subasta: "Factura subasta",
+  titulo: "Titulo",
+  liquidacion_aduana: "Aduana",
+  matricula_dgii: "Matricula DGII"
+};
 const EMPTY_DOCUMENT_FORM = {
   document_type: "factura_subasta",
   file: null,
@@ -132,6 +144,7 @@ function App() {
         console.log("DATA BACKEND:", data);
         const list = data.data || [];
         setVehicles(list);
+        loadVehicleDocumentSummary();
 
         const salesMapEntries = await Promise.all(
           list.map(async (vehicle) => {
@@ -211,6 +224,9 @@ function App() {
   const [editingSaleId, setEditingSaleId] = useState(null);
   const [selectedDocumentVehicle, setSelectedDocumentVehicle] = useState(null);
   const [vehicleDocuments, setVehicleDocuments] = useState([]);
+  const [vehicleDocumentSummaryById, setVehicleDocumentSummaryById] = useState({});
+  const [documentSummaryLoading, setDocumentSummaryLoading] = useState(false);
+  const [documentSummaryError, setDocumentSummaryError] = useState("");
   const [documentsLoading, setDocumentsLoading] = useState(false);
   const [documentUploading, setDocumentUploading] = useState(false);
   const [deletingDocumentId, setDeletingDocumentId] = useState(null);
@@ -256,6 +272,8 @@ function App() {
     setQuotes([]);
     setSelectedDocumentVehicle(null);
     setVehicleDocuments([]);
+    setVehicleDocumentSummaryById({});
+    setDocumentSummaryError("");
     clearDocumentPreview();
     setDocumentsMessage({ type: "", text: "" });
     setProfitRows([]);
@@ -815,6 +833,36 @@ function App() {
     return "";
   };
 
+  const loadVehicleDocumentSummary = async () => {
+    setDocumentSummaryLoading(true);
+    setDocumentSummaryError("");
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/vehicles/document-summary`, {
+        headers: getAuthHeaders()
+      });
+      const payload = await response.json();
+
+      if (handleAuthApiStatus(response)) {
+        return;
+      }
+
+      if (!response.ok) {
+        throw new Error(parseApiError(payload, "No se pudo cargar el resumen documental"));
+      }
+
+      const summaryMap = Object.fromEntries(
+        (payload.data || []).map((row) => [String(row.vehicle_id), new Set(row.document_types || [])])
+      );
+      setVehicleDocumentSummaryById(summaryMap);
+    } catch (error) {
+      console.error("Error cargando resumen documental:", error);
+      setDocumentSummaryError(error.message || "No se pudo cargar el resumen documental");
+    } finally {
+      setDocumentSummaryLoading(false);
+    }
+  };
+
   const loadVehicleDocuments = async (vehicleId) => {
     if (!vehicleId) {
       setVehicleDocuments([]);
@@ -907,6 +955,7 @@ function App() {
       resetDocumentForm();
       setDocumentsMessage({ type: "success", text: "Documento subido correctamente." });
       loadVehicleDocuments(selectedDocumentVehicle.id);
+      loadVehicleDocumentSummary();
     } catch (error) {
       console.error("Error subiendo documento:", error);
       setDocumentsMessage({ type: "error", text: error.message || "No se pudo subir el documento" });
@@ -1053,6 +1102,7 @@ function App() {
       if (selectedDocumentVehicle) {
         loadVehicleDocuments(selectedDocumentVehicle.id);
       }
+      loadVehicleDocumentSummary();
     } catch (error) {
       console.error("Error eliminando documento:", error);
       setDocumentsMessage({ type: "error", text: error.message || "No se pudo eliminar el documento" });
@@ -1786,6 +1836,36 @@ const formatMoney = (value, currency = "USD") => {
   };
 
   const documentTypeLabel = (type) => String(type || "").replaceAll("_", " ");
+
+  const getVehicleDocumentProgress = (vehicleId) => {
+    const documentTypes = vehicleDocumentSummaryById[String(vehicleId)] || new Set();
+    const completedRequiredTypes = REQUIRED_VEHICLE_DOCUMENT_TYPES.filter((type) => documentTypes.has(type));
+    const percentage = Math.round((completedRequiredTypes.length / REQUIRED_VEHICLE_DOCUMENT_TYPES.length) * 100);
+
+    return {
+      percentage,
+      completed: completedRequiredTypes.length,
+      total: REQUIRED_VEHICLE_DOCUMENT_TYPES.length,
+      documentTypes
+    };
+  };
+
+  const getDocumentProgressVariant = (percentage) => {
+    if (percentage === 100) return "complete";
+    if (percentage > 0) return "partial";
+    return "empty";
+  };
+
+  const buildDocumentProgressTitle = (documentTypes) =>
+    REQUIRED_VEHICLE_DOCUMENT_TYPES.map(
+      (type) => `${REQUIRED_VEHICLE_DOCUMENT_LABELS[type] || documentTypeLabel(type)}: ${documentTypes.has(type) ? "Si" : "No"}`
+    ).join("\n");
+
+  const getDocumentProgressLabel = (percentage) => {
+    if (documentSummaryError) return "N/D";
+    if (documentSummaryLoading) return "...";
+    return `${percentage}%`;
+  };
 
 
   const parseDateValue = (value) => {
@@ -2724,11 +2804,17 @@ const formatMoney = (value, currency = "USD") => {
                 <th>Año</th>
                 <th className="numeric">Precio</th>
                 <th>Estado</th>
+                <th>Expediente</th>
                 <th>Acciones</th>
               </tr>
             </thead>
             <tbody>
-              {filteredVehicles.map((v) => (
+              {filteredVehicles.map((v) => {
+                const documentProgress = getVehicleDocumentProgress(v.id);
+                const progressVariant = documentSummaryError ? "unavailable" : getDocumentProgressVariant(documentProgress.percentage);
+                const progressTitle = documentSummaryError ? documentSummaryError : buildDocumentProgressTitle(documentProgress.documentTypes);
+
+                return (
                 <tr key={v.id}>
                   <td>{v.id}</td>
                   <td>{v.marca}</td>
@@ -2753,6 +2839,31 @@ const formatMoney = (value, currency = "USD") => {
                   <td className="numeric">{formatMoney(v.precio_estimado)}</td>
                   <td>
                     <span className="status-pill">{estadoLabel(v.estado)}</span>
+                  </td>
+                  <td>
+                    <details className={`document-progress document-progress-${progressVariant}`}>
+                      <summary title={progressTitle}>
+                        <span className="document-progress-dot" aria-hidden="true" />
+                        <span className="document-progress-value">
+                          {getDocumentProgressLabel(documentProgress.percentage)}
+                        </span>
+                        <span className="document-progress-bar" aria-hidden="true">
+                          <span style={{ width: documentSummaryError ? "100%" : `${documentProgress.percentage}%` }} />
+                        </span>
+                      </summary>
+                      <div className="document-progress-detail">
+                        {documentSummaryError ? (
+                          <span>No se pudo cargar el resumen documental.</span>
+                        ) : (
+                          REQUIRED_VEHICLE_DOCUMENT_TYPES.map((type) => (
+                            <span key={type}>
+                              {REQUIRED_VEHICLE_DOCUMENT_LABELS[type] || documentTypeLabel(type)}:{" "}
+                              <strong>{documentProgress.documentTypes.has(type) ? "Si" : "No"}</strong>
+                            </span>
+                          ))
+                        )}
+                      </div>
+                    </details>
                   </td>
                   <td>
                     <div className="table-actions">
@@ -2810,7 +2921,8 @@ const formatMoney = (value, currency = "USD") => {
                     </div>
                   </td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
         </div>

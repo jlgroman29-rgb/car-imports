@@ -72,6 +72,13 @@ VALID_VEHICLE_DOCUMENT_TYPES = [
     "otros"
 ]
 
+REQUIRED_VEHICLE_DOCUMENT_TYPES = [
+    "factura_subasta",
+    "titulo",
+    "liquidacion_aduana",
+    "matricula_dgii"
+]
+
 VALID_ESTADOS = [
     "comprado",
     "en_transito",
@@ -1455,6 +1462,43 @@ def upload_vehicle_image(vehicle_id):
 def serve_vehicle_image(filename):
     ensure_vehicle_upload_folder()
     return send_from_directory(app.config["VEHICLE_UPLOAD_FOLDER"], filename)
+
+
+@app.route("/vehicles/document-summary", methods=["GET"])
+@require_authenticated_active_user
+def get_vehicle_document_summary():
+    try:
+        conn = get_connection()
+        ensure_vehicle_documents_table(conn)
+
+        import psycopg2.extras
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute("""
+            SELECT
+                vehicle_id,
+                ARRAY_AGG(DISTINCT document_type) AS document_types
+            FROM vehicle_documents
+            GROUP BY vehicle_id;
+        """)
+        rows = cur.fetchall()
+
+        cur.close()
+        conn.close()
+
+        return {
+            "status": "OK",
+            "required_document_types": REQUIRED_VEHICLE_DOCUMENT_TYPES,
+            "data": [
+                {
+                    "vehicle_id": row["vehicle_id"],
+                    "document_types": row.get("document_types") or []
+                }
+                for row in rows
+            ]
+        }
+
+    except Exception as e:
+        return {"status": "error", "message": str(e)}, 500
 
 
 @app.route("/vehicles/<int:vehicle_id>/documents", methods=["POST"])
