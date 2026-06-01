@@ -127,8 +127,8 @@ CUSTOMS_VALUE_COLUMN_ALIASES = {
     "especificacion": "especificacion_producto",
     "especificaciones": "especificacion_producto",
     "especificacion producto": "especificacion_producto",
+    "especificacion de producto": "especificacion_producto",
     "especificacion del producto": "especificacion_producto",
-    "producto": "especificacion_producto",
     "descripcion": "especificacion_producto",
     "version": "especificacion_producto",
     "trim": "especificacion_producto",
@@ -140,6 +140,11 @@ CUSTOMS_VALUE_COLUMN_ALIASES = {
     "valor fob": "valor_aduanas",
     "fob": "valor_aduanas",
     "precio": "valor_aduanas",
+}
+CUSTOMS_VALUE_IGNORED_COLUMN_HEADERS = {
+    "codigo arancel",
+    "codigo de producto",
+    "nombre de producto",
 }
 
 
@@ -261,6 +266,9 @@ def normalize_customs_header(value):
 
 def map_customs_column(value):
     normalized = normalize_customs_header(value)
+    if normalized in CUSTOMS_VALUE_IGNORED_COLUMN_HEADERS:
+        return None
+
     if normalized in CUSTOMS_VALUE_COLUMN_ALIASES:
         return CUSTOMS_VALUE_COLUMN_ALIASES[normalized]
 
@@ -584,7 +592,7 @@ def insert_customs_record(cur, record):
     return cur.fetchone() is not None
 
 
-def import_customs_vehicle_values(excel_path, source_year=CUSTOMS_VALUES_SOURCE_YEAR):
+def import_customs_vehicle_values(excel_path, source_year=CUSTOMS_VALUES_SOURCE_YEAR, replace_source_year=False):
     try:
         from openpyxl import load_workbook
     except ImportError as import_error:
@@ -615,6 +623,10 @@ def import_customs_vehicle_values(excel_path, source_year=CUSTOMS_VALUES_SOURCE_
     conn = get_connection()
     ensure_customs_vehicle_values_table(conn)
     cur = conn.cursor()
+    deleted_existing = 0
+    if replace_source_year:
+        cur.execute("DELETE FROM customs_vehicle_values WHERE source_year = %s;", (source_year,))
+        deleted_existing = cur.rowcount
 
     summary = {
         "status": "OK",
@@ -622,6 +634,8 @@ def import_customs_vehicle_values(excel_path, source_year=CUSTOMS_VALUES_SOURCE_
         "file": os.path.basename(excel_path),
         "sheet": worksheet.title,
         "header_row": data_start_row - 1,
+        "replace_source_year": replace_source_year,
+        "deleted_existing": deleted_existing,
         "processed": 0,
         "inserted": 0,
         "duplicates": 0,
@@ -1676,8 +1690,9 @@ def test_db():
 @app.cli.command("import-customs-values")
 @click.argument("excel_path", type=click.Path(exists=True, dir_okay=False))
 @click.option("--source-year", default=CUSTOMS_VALUES_SOURCE_YEAR, show_default=True)
-def import_customs_values_command(excel_path, source_year):
-    summary = import_customs_vehicle_values(excel_path, source_year)
+@click.option("--replace-source-year", is_flag=True, help="Elimina primero los registros del source_year indicado.")
+def import_customs_values_command(excel_path, source_year, replace_source_year):
+    summary = import_customs_vehicle_values(excel_path, source_year, replace_source_year)
     click.echo(json.dumps(summary, ensure_ascii=False, indent=2, default=str))
 
 
