@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from "react";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, Cell, ResponsiveContainer, PieChart, Pie, CartesianGrid } from "recharts";
 import "./App.css";
 import { COMPANY_BRAND } from "./branding";
-import { exportCostReport, exportFinancialReport, exportInventoryIntelligenceReport, EXPORT_FORMATS } from "./reportExport";
+import { exportCostReport, exportCustomsEstimateReport, exportFinancialReport, exportInventoryIntelligenceReport, EXPORT_FORMATS } from "./reportExport";
 import { buildQuoteHtml } from "./quoteTemplate";
 import { buildReceiptHtml } from "./receiptTemplate";
 
@@ -53,6 +53,113 @@ const EMPTY_QUOTE_FORM = {
   status: "emitida"
 };
 const QUOTE_STATUSES = ["emitida", "borrador", "cancelada", "convertida"];
+const EMPTY_CUSTOMS_SELECTION = {
+  marca: "",
+  modelo: "",
+  anio: "",
+  especificacion: "",
+  pais: ""
+};
+const EMPTY_CUSTOMS_OPTIONS = {
+  marcas: [],
+  modelos: [],
+  anios: [],
+  especificaciones: []
+};
+const EMPTY_CUSTOMS_ESTIMATE_FORM = {
+  tasa_cambio: "",
+  flete_usd: "785",
+  marbete_dop: "0",
+  co2_percent: "1",
+  servicios_aduaneros_dop: ""
+};
+const CUSTOMS_FIXED_ADUANA_DOP = 105;
+const CUSTOMS_FIRST_PLATE_RATE = 0.17;
+const CUSTOMS_INSURANCE_RATE = 0.02;
+const CUSTOMS_ITBIS_RATE = 0.18;
+const CUSTOMS_MODALITY_RATES = {
+  dealer: { label: "Dealer", gravamenRate: 0.1, servicesFactor: 152 },
+  particular: { label: "Particular", gravamenRate: 0.2, servicesFactor: 152.27 },
+  dr_cafta: { label: "DR-CAFTA", gravamenRate: 0, servicesFactor: 152.27 }
+};
+
+const parseEstimateNumber = (value, fallback = 0) => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+};
+
+const buildCustomsEstimatePresentation = (estimate, form) => {
+  const inputs = estimate?.inputs || {};
+  const tasa = parseEstimateNumber(inputs.tasa_cambio, parseEstimateNumber(form.tasa_cambio));
+  const fobUsd = parseEstimateNumber(inputs.fob_usd, parseEstimateNumber(estimate?.customs_value?.valor_aduanas));
+  const seguroUsd = parseEstimateNumber(inputs.seguro_usd, fobUsd * CUSTOMS_INSURANCE_RATE);
+  const fleteUsd = parseEstimateNumber(inputs.flete_usd, parseEstimateNumber(form.flete_usd));
+  const cifUsd = parseEstimateNumber(inputs.cif_usd, fobUsd + seguroUsd + fleteUsd);
+  const marbeteDop = parseEstimateNumber(form.marbete_dop);
+  const co2Rate = parseEstimateNumber(form.co2_percent) / 100;
+  const manualServicesValue = String(form.servicios_aduaneros_dop ?? "").trim();
+  const manualServicesDop = manualServicesValue === "" ? null : parseEstimateNumber(manualServicesValue);
+  const shouldUseManualServices = manualServicesDop !== null && manualServicesDop > 0;
+
+  const fobDop = fobUsd * tasa;
+  const seguroDop = seguroUsd * tasa;
+  const fleteDop = fleteUsd * tasa;
+  const cifDop = cifUsd * tasa;
+  const primeraPlacaDop = cifDop * CUSTOMS_FIRST_PLATE_RATE;
+  const co2Dop = cifDop * co2Rate;
+
+  const modalities = Object.entries(CUSTOMS_MODALITY_RATES).map(([key, config]) => {
+    const gravamenDop = cifDop * config.gravamenRate;
+    const itbisDop = (cifDop + gravamenDop) * CUSTOMS_ITBIS_RATE;
+    const serviciosDop = shouldUseManualServices ? manualServicesDop : tasa * config.servicesFactor;
+    const colectorDop = gravamenDop + itbisDop + CUSTOMS_FIXED_ADUANA_DOP;
+    const totalDop = colectorDop + primeraPlacaDop + marbeteDop + co2Dop + serviciosDop;
+    const ajusteDop = 0;
+    const totalFinalDop = totalDop + ajusteDop;
+
+    return {
+      key,
+      label: config.label,
+      estimacionUsd: tasa > 0 ? totalFinalDop / tasa : 0,
+      gravamenDop,
+      itbisDop,
+      aduanaFijaDop: CUSTOMS_FIXED_ADUANA_DOP,
+      colectorDop,
+      primeraPlacaDop,
+      marbeteDop,
+      co2Dop,
+      serviciosDop,
+      totalDop,
+      ajusteDop,
+      totalFinalDop
+    };
+  });
+
+  return {
+    tasa,
+    co2Rate,
+    baseRows: [
+      { key: "fob", label: "FOB", usd: fobUsd, dop: fobDop },
+      { key: "seguro", label: "Seguro", usd: seguroUsd, dop: seguroDop },
+      { key: "flete", label: "Flete", usd: fleteUsd, dop: fleteDop },
+      { key: "cif", label: "Valor CIF", usd: cifUsd, dop: cifDop, emphasis: true }
+    ],
+    modalities,
+    modalityRows: [
+      { key: "gravamenDop", label: "Gravamen", currency: "DOP" },
+      { key: "itbisDop", label: "ITBIS", currency: "DOP" },
+      { key: "aduanaFijaDop", label: "105.00", currency: "DOP" },
+      { key: "colectorDop", label: "Colector de Aduana", currency: "DOP", emphasis: true },
+      { key: "primeraPlacaDop", label: "Primera Placa", currency: "DOP" },
+      { key: "marbeteDop", label: "Marbete", currency: "DOP" },
+      { key: "co2Dop", label: `CO2 (${(co2Rate * 100).toFixed(2)}%)`, currency: "DOP" },
+      { key: "serviciosDop", label: "Servicios Aduaneros", currency: "DOP" },
+      { key: "totalDop", label: "Total", currency: "DOP", emphasis: true },
+      { key: "ajusteDop", label: "Ajuste", currency: "DOP" },
+      { key: "totalFinalDop", label: "Total Final", currency: "DOP", emphasis: true, final: true }
+    ]
+  };
+};
 
 
 const ESTADOS = [
@@ -241,6 +348,17 @@ function App() {
   const [convertingQuoteId, setConvertingQuoteId] = useState(null);
   const [editingQuoteId, setEditingQuoteId] = useState(null);
   const [quoteForm, setQuoteForm] = useState(EMPTY_QUOTE_FORM);
+  const [customsSelection, setCustomsSelection] = useState(EMPTY_CUSTOMS_SELECTION);
+  const [customsOptions, setCustomsOptions] = useState(EMPTY_CUSTOMS_OPTIONS);
+  const [customsOptionsLoading, setCustomsOptionsLoading] = useState(false);
+  const [customsValuesLoading, setCustomsValuesLoading] = useState(false);
+  const [customsCandidates, setCustomsCandidates] = useState([]);
+  const [selectedCustomsValue, setSelectedCustomsValue] = useState(null);
+  const [customsEstimateForm, setCustomsEstimateForm] = useState(EMPTY_CUSTOMS_ESTIMATE_FORM);
+  const [customsEstimateResult, setCustomsEstimateResult] = useState(null);
+  const [customsEstimateLoading, setCustomsEstimateLoading] = useState(false);
+  const [customsEstimateExporting, setCustomsEstimateExporting] = useState(false);
+  const [customsEstimateMessage, setCustomsEstimateMessage] = useState({ type: "", text: "" });
   const [saleForm, setSaleForm] = useState({
     nombre_cliente: "",
     telefono_cliente: "",
@@ -289,6 +407,13 @@ function App() {
     setSelectedSalesVehicle(null);
     setQuoteForm(EMPTY_QUOTE_FORM);
     setEditingQuoteId(null);
+    setCustomsSelection(EMPTY_CUSTOMS_SELECTION);
+    setCustomsOptions(EMPTY_CUSTOMS_OPTIONS);
+    setCustomsCandidates([]);
+    setSelectedCustomsValue(null);
+    setCustomsEstimateForm(EMPTY_CUSTOMS_ESTIMATE_FORM);
+    setCustomsEstimateResult(null);
+    setCustomsEstimateMessage({ type: "", text: "" });
   };
 
   const getTokenExpiration = (token) => {
@@ -385,6 +510,247 @@ function App() {
     }
 
     return false;
+  };
+
+  const buildCustomsOptionsUrl = (selection) => {
+    const params = new URLSearchParams();
+    if (selection.marca) params.append("marca", selection.marca);
+    if (selection.modelo) params.append("modelo", selection.modelo);
+    if (selection.anio) params.append("anio", selection.anio);
+    const query = params.toString();
+    return `${API_BASE_URL}/customs-values/options${query ? `?${query}` : ""}`;
+  };
+
+  const loadCustomsOptions = async (selection = customsSelection) => {
+    setCustomsOptionsLoading(true);
+    setCustomsEstimateMessage({ type: "", text: "" });
+
+    try {
+      const response = await fetch(buildCustomsOptionsUrl(selection), { headers: getAuthHeaders() });
+      const payload = await response.json();
+
+      if (!response.ok) {
+        throw new Error(parseApiError(payload, "No se pudieron cargar las opciones de Aduanas"));
+      }
+
+      setCustomsOptions({
+        marcas: payload.data?.marcas || [],
+        modelos: payload.data?.modelos || [],
+        anios: payload.data?.anios || [],
+        especificaciones: payload.data?.especificaciones || []
+      });
+    } catch (error) {
+      console.error("Error cargando opciones aduanales:", error);
+      setCustomsEstimateMessage({ type: "error", text: error.message || "No se pudieron cargar las opciones de Aduanas" });
+    } finally {
+      setCustomsOptionsLoading(false);
+    }
+  };
+
+  const fetchCustomsValuesForSelection = async (selection) => {
+    if (!selection.marca || !selection.modelo || !selection.anio || !selection.especificacion) {
+      setSelectedCustomsValue(null);
+      setCustomsCandidates([]);
+      return;
+    }
+
+    setCustomsValuesLoading(true);
+    setCustomsEstimateMessage({ type: "", text: "" });
+    setSelectedCustomsValue(null);
+    setCustomsCandidates([]);
+    setCustomsEstimateResult(null);
+
+    const params = new URLSearchParams({
+      marca: selection.marca,
+      modelo: selection.modelo,
+      anio: selection.anio,
+      especificacion: selection.especificacion,
+      limit: "25"
+    });
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/customs-values?${params.toString()}`, { headers: getAuthHeaders() });
+      const payload = await response.json();
+
+      if (!response.ok) {
+        throw new Error(parseApiError(payload, "No se pudo cargar el valor de Aduanas"));
+      }
+
+      const values = payload.data || [];
+      setCustomsCandidates(values);
+      if (values.length === 1) {
+        setSelectedCustomsValue(values[0]);
+        setCustomsSelection((currentSelection) => ({
+          ...currentSelection,
+          pais: values[0].pais || ""
+        }));
+      } else if (values.length > 1) {
+        setCustomsEstimateMessage({
+          type: "success",
+          text: "Selecciona el pais para usar el valor correcto de Aduanas."
+        });
+      } else {
+        setCustomsEstimateMessage({ type: "error", text: "No se encontro valor de Aduanas para esa seleccion." });
+      }
+    } catch (error) {
+      console.error("Error cargando valor aduanal:", error);
+      setCustomsEstimateMessage({ type: "error", text: error.message || "No se pudo cargar el valor de Aduanas" });
+    } finally {
+      setCustomsValuesLoading(false);
+    }
+  };
+
+  const handleCustomsSelectionChange = async (event) => {
+    const { name, value } = event.target;
+    const nextSelection = { ...customsSelection, [name]: value };
+
+    if (name === "marca") {
+      nextSelection.modelo = "";
+      nextSelection.anio = "";
+      nextSelection.especificacion = "";
+      nextSelection.pais = "";
+    }
+    if (name === "modelo") {
+      nextSelection.anio = "";
+      nextSelection.especificacion = "";
+      nextSelection.pais = "";
+    }
+    if (name === "anio") {
+      nextSelection.especificacion = "";
+      nextSelection.pais = "";
+    }
+    if (name === "especificacion") {
+      nextSelection.pais = "";
+    }
+
+    setCustomsSelection(nextSelection);
+    setSelectedCustomsValue(null);
+    if (name !== "pais") {
+      setCustomsCandidates([]);
+    }
+    setCustomsEstimateResult(null);
+    setCustomsEstimateMessage({ type: "", text: "" });
+    if (name !== "pais") {
+      await loadCustomsOptions(nextSelection);
+    }
+
+    if (name === "especificacion") {
+      fetchCustomsValuesForSelection(nextSelection);
+    }
+
+    if (name === "pais") {
+      const matchingCandidates = customsCandidates.filter((candidate) => (candidate.pais || "") === value);
+      if (matchingCandidates.length === 1) {
+        setSelectedCustomsValue(matchingCandidates[0]);
+        setCustomsEstimateMessage({ type: "success", text: "Pais seleccionado para calcular con el valor correcto." });
+      } else if (matchingCandidates.length > 1) {
+        setCustomsEstimateMessage({
+          type: "error",
+          text: "Ese pais aun tiene multiples valores. Selecciona el candidato exacto de la tabla."
+        });
+      }
+    }
+  };
+
+  const handleSelectCustomsCandidate = (candidate) => {
+    setSelectedCustomsValue(candidate);
+    setCustomsSelection((currentSelection) => ({
+      ...currentSelection,
+      pais: candidate.pais || ""
+    }));
+    setCustomsEstimateResult(null);
+    setCustomsEstimateMessage({ type: "success", text: "Valor de Aduanas seleccionado para calcular." });
+  };
+
+  const handleCustomsEstimateInputChange = (event) => {
+    const { name, value } = event.target;
+    setCustomsEstimateForm((currentForm) => ({ ...currentForm, [name]: value }));
+  };
+
+  const handleCalculateCustomsEstimate = async (event) => {
+    event.preventDefault();
+    setCustomsEstimateMessage({ type: "", text: "" });
+    setCustomsEstimateResult(null);
+
+    if (!selectedCustomsValue) {
+      setCustomsEstimateMessage({ type: "error", text: "Selecciona un valor de Aduanas antes de calcular." });
+      return;
+    }
+
+    setCustomsEstimateLoading(true);
+
+    try {
+      const fobUsd = parseEstimateNumber(selectedCustomsValue.valor_aduanas);
+      const tasaCambio = parseEstimateNumber(customsEstimateForm.tasa_cambio);
+      const fleteUsd = parseEstimateNumber(customsEstimateForm.flete_usd);
+      const cifUsd = fobUsd + fobUsd * CUSTOMS_INSURANCE_RATE + fleteUsd;
+      const co2Dop = cifUsd * tasaCambio * (parseEstimateNumber(customsEstimateForm.co2_percent) / 100);
+      const serviciosValue = String(customsEstimateForm.servicios_aduaneros_dop ?? "").trim();
+      const response = await fetch(`${API_BASE_URL}/customs-estimate`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...getAuthHeaders()
+        },
+        body: JSON.stringify({
+          customs_value_id: selectedCustomsValue.id,
+          tasa_cambio: Number(customsEstimateForm.tasa_cambio),
+          flete_usd: Number(customsEstimateForm.flete_usd),
+          marbete_dop: Number(customsEstimateForm.marbete_dop),
+          co2_dop: co2Dop,
+          servicios_aduaneros_dop: serviciosValue === "" ? 0 : Number(serviciosValue)
+        })
+      });
+      const payload = await response.json();
+
+      if (!response.ok) {
+        if (Array.isArray(payload.candidates) && payload.candidates.length) {
+          setCustomsCandidates(payload.candidates);
+        }
+        throw new Error(parseApiError(payload, "No se pudo calcular la estimacion aduanal"));
+      }
+
+      setCustomsEstimateResult({
+        ...payload.data,
+        presentation: buildCustomsEstimatePresentation(payload.data, customsEstimateForm)
+      });
+      setCustomsEstimateMessage({ type: "success", text: "Estimacion calculada correctamente." });
+    } catch (error) {
+      console.error("Error calculando estimacion aduanal:", error);
+      setCustomsEstimateMessage({ type: "error", text: error.message || "No se pudo calcular la estimacion aduanal" });
+    } finally {
+      setCustomsEstimateLoading(false);
+    }
+  };
+
+  const handleExportCustomsEstimate = () => {
+    if (!customsEstimateResult) {
+      setCustomsEstimateMessage({ type: "error", text: "Primero calcula una estimacion para exportar." });
+      return;
+    }
+
+    const printWindow = window.open("", "_blank");
+    if (!printWindow) {
+      alert("No se pudo abrir la ventana de impresion. Habilita los pop-ups e intentalo de nuevo.");
+      return;
+    }
+
+    setCustomsEstimateExporting(true);
+    try {
+      exportCustomsEstimateReport({
+        format: EXPORT_FORMATS.PDF,
+        estimate: customsEstimateResult,
+        printWindow
+      });
+    } catch (error) {
+      if (printWindow && !printWindow.closed) {
+        printWindow.close();
+      }
+      console.error("Error exportando estimacion aduanal:", error);
+      setCustomsEstimateMessage({ type: "error", text: error.message || "No se pudo exportar la estimacion." });
+    } finally {
+      setCustomsEstimateExporting(false);
+    }
   };
 
   const resetUserForm = () => {
@@ -1434,6 +1800,19 @@ function App() {
   }, [activeTab, authStatus, loadingReport, loadingCostAnalytics, reportRows.length]);
 
   useEffect(() => {
+    if (authStatus !== "authenticated" || activeTab !== "estimacion_aduanal") {
+      return;
+    }
+
+    if (customsOptions.marcas.length > 0 || customsOptionsLoading) {
+      return;
+    }
+
+    loadCustomsOptions(EMPTY_CUSTOMS_SELECTION);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab, authStatus, customsOptions.marcas.length, customsOptionsLoading]);
+
+  useEffect(() => {
 
     if (authStatus !== "authenticated" || authUser?.role !== "admin") {
       return;
@@ -2365,6 +2744,7 @@ const formatMoney = (value, currency = "USD") => {
     { key: "costos", label: "Costos" },
     { key: "ventas", label: "Ventas" },
     { key: "cotizaciones", label: "Cotizaciones" },
+    { key: "estimacion_aduanal", label: "EstimaciÃ³n Aduanal" },
     { key: "reportes", label: "Reportes" },
     { key: "analytics", label: "Analytics" },
     { key: "usuarios", label: "Usuarios", adminOnly: true },
@@ -2401,6 +2781,14 @@ const formatMoney = (value, currency = "USD") => {
       variant: "neutral"
     }
   ];
+
+  const customsPresentation = customsEstimateResult?.presentation || null;
+  const customsCountryOptions = Array.from(
+    new Set(customsCandidates.map((candidate) => candidate.pais).filter(Boolean))
+  ).sort();
+  const unresolvedCountryCandidates = customsSelection.pais
+    ? customsCandidates.filter((candidate) => (candidate.pais || "") === customsSelection.pais)
+    : customsCandidates;
 
   if (authStatus !== "authenticated") {
     return (
@@ -3279,6 +3667,288 @@ const formatMoney = (value, currency = "USD") => {
               </tbody>
             </table>
           </div>
+        </section>
+      )}
+
+      {activeTab === "estimacion_aduanal" && (
+        <section className="panel customs-estimate-panel">
+          <div className="panel-title-row">
+            <div>
+              <h2>EstimaciÃ³n Aduanal</h2>
+              <p className="panel-subtitle">Selecciona la base de Aduanas y calcula escenarios por modalidad.</p>
+            </div>
+            <button
+              className="btn btn-secondary"
+              type="button"
+              onClick={handleExportCustomsEstimate}
+              disabled={!customsEstimateResult || customsEstimateExporting}
+            >
+              {customsEstimateExporting ? "Exportando..." : "Exportar EstimaciÃ³n"}
+            </button>
+          </div>
+
+          {customsEstimateMessage.text && (
+            <div className={`user-feedback user-feedback-${customsEstimateMessage.type}`}>
+              {customsEstimateMessage.text}
+            </div>
+          )}
+
+          <div className="customs-flow-grid">
+            <article className="customs-step-card">
+              <span className="customs-step-number">1</span>
+              <label>
+                Marca
+                <select
+                  className="input-control"
+                  name="marca"
+                  value={customsSelection.marca}
+                  onChange={handleCustomsSelectionChange}
+                  disabled={customsOptionsLoading}
+                >
+                  <option value="">Selecciona marca</option>
+                  {customsOptions.marcas.map((marca) => (
+                    <option key={marca} value={marca}>{marca}</option>
+                  ))}
+                </select>
+              </label>
+            </article>
+
+            <article className="customs-step-card">
+              <span className="customs-step-number">2</span>
+              <label>
+                Modelo
+                <select
+                  className="input-control"
+                  name="modelo"
+                  value={customsSelection.modelo}
+                  onChange={handleCustomsSelectionChange}
+                  disabled={!customsSelection.marca || customsOptionsLoading}
+                >
+                  <option value="">Selecciona modelo</option>
+                  {customsOptions.modelos.map((modelo) => (
+                    <option key={modelo} value={modelo}>{modelo}</option>
+                  ))}
+                </select>
+              </label>
+            </article>
+
+            <article className="customs-step-card">
+              <span className="customs-step-number">3</span>
+              <label>
+                AÃ±o
+                <select
+                  className="input-control"
+                  name="anio"
+                  value={customsSelection.anio}
+                  onChange={handleCustomsSelectionChange}
+                  disabled={!customsSelection.modelo || customsOptionsLoading}
+                >
+                  <option value="">Selecciona aÃ±o</option>
+                  {customsOptions.anios.map((anio) => (
+                    <option key={anio} value={anio}>{anio}</option>
+                  ))}
+                </select>
+              </label>
+            </article>
+
+            <article className="customs-step-card customs-step-wide">
+              <span className="customs-step-number">4</span>
+              <label>
+                EspecificaciÃ³n
+                <select
+                  className="input-control"
+                  name="especificacion"
+                  value={customsSelection.especificacion}
+                  onChange={handleCustomsSelectionChange}
+                  disabled={!customsSelection.anio || customsOptionsLoading}
+                >
+                  <option value="">Selecciona especificaciÃ³n</option>
+                  {customsOptions.especificaciones.map((spec) => (
+                    <option key={spec} value={spec}>{spec}</option>
+                  ))}
+                </select>
+              </label>
+            </article>
+
+            <article className="customs-step-card">
+              <span className="customs-step-number">5</span>
+              <label>
+                Pais
+                <select
+                  className="input-control"
+                  name="pais"
+                  value={customsSelection.pais}
+                  onChange={handleCustomsSelectionChange}
+                  disabled={!customsSelection.especificacion || customsValuesLoading || customsCountryOptions.length === 0}
+                >
+                  <option value="">Selecciona pais</option>
+                  {customsCountryOptions.map((pais) => (
+                    <option key={pais} value={pais}>{pais}</option>
+                  ))}
+                </select>
+              </label>
+            </article>
+          </div>
+
+          {(customsOptionsLoading || customsValuesLoading) && (
+            <div className="customs-loader">
+              <LoadingSpinner label={customsValuesLoading ? "Cargando valor..." : "Cargando opciones..."} />
+            </div>
+          )}
+
+          {unresolvedCountryCandidates.length > 1 && !selectedCustomsValue && (
+            <div className="customs-candidates">
+              <h3>Selecciona un candidato</h3>
+              <div className="table-wrapper">
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      <th>Marca</th>
+                      <th>Modelo</th>
+                      <th>AÃ±o</th>
+                      <th>PaÃ­s</th>
+                      <th>EspecificaciÃ³n</th>
+                      <th>Valor</th>
+                      <th></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {unresolvedCountryCandidates.map((candidate) => (
+                      <tr key={candidate.id}>
+                        <td>{candidate.marca}</td>
+                        <td>{candidate.modelo}</td>
+                        <td>{candidate.anio}</td>
+                        <td>{candidate.pais || "N/D"}</td>
+                        <td>{candidate.especificacion_producto}</td>
+                        <td className="numeric">{formatMoney(candidate.valor_aduanas, "USD")}</td>
+                        <td>
+                          <button className="btn btn-secondary" type="button" onClick={() => handleSelectCustomsCandidate(candidate)}>
+                            Usar
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {selectedCustomsValue && (
+            <article className="customs-selected-card">
+              <div>
+                <span>Marca</span>
+                <strong>{selectedCustomsValue.marca}</strong>
+              </div>
+              <div>
+                <span>Modelo</span>
+                <strong>{selectedCustomsValue.modelo}</strong>
+              </div>
+              <div>
+                <span>AÃ±o</span>
+                <strong>{selectedCustomsValue.anio}</strong>
+              </div>
+              <div>
+                <span>Pais</span>
+                <strong>{selectedCustomsValue.pais || "N/D"}</strong>
+              </div>
+              <div>
+                <span>Valor Aduanas</span>
+                <strong>{formatMoney(selectedCustomsValue.valor_aduanas, "USD")}</strong>
+              </div>
+              <div className="customs-selected-spec">
+                <span>EspecificaciÃ³n</span>
+                <strong>{selectedCustomsValue.especificacion_producto}</strong>
+              </div>
+            </article>
+          )}
+
+          <form className="customs-calc-form" onSubmit={handleCalculateCustomsEstimate}>
+            <label>
+              Tasa cambio
+              <input className="input-control" type="number" step="0.0001" min="0.0001" name="tasa_cambio" value={customsEstimateForm.tasa_cambio} onChange={handleCustomsEstimateInputChange} required />
+            </label>
+            <label>
+              Flete USD
+              <input className="input-control" type="number" step="0.01" min="0" name="flete_usd" value={customsEstimateForm.flete_usd} onChange={handleCustomsEstimateInputChange} required />
+            </label>
+            <label>
+              Marbete DOP
+              <input className="input-control" type="number" step="0.01" min="0" name="marbete_dop" value={customsEstimateForm.marbete_dop} onChange={handleCustomsEstimateInputChange} />
+            </label>
+            <label>
+              CO2 %
+              <input className="input-control" type="number" step="0.01" min="0" name="co2_percent" value={customsEstimateForm.co2_percent} onChange={handleCustomsEstimateInputChange} />
+            </label>
+            <label>
+              Servicios Aduaneros DOP (opcional)
+              <input className="input-control" type="number" step="0.01" min="0" name="servicios_aduaneros_dop" value={customsEstimateForm.servicios_aduaneros_dop} onChange={handleCustomsEstimateInputChange} placeholder="Calculado por tasa" />
+            </label>
+            <div className="customs-calc-actions">
+              <button className="btn btn-primary" type="submit" disabled={!selectedCustomsValue || customsEstimateLoading}>
+                {customsEstimateLoading ? <LoadingSpinner label="Calculando..." /> : "Calcular"}
+              </button>
+            </div>
+          </form>
+
+          {customsEstimateResult && (
+            <div className="customs-results">
+              <div className="customs-table-grid">
+                <div className="customs-table-scroll">
+                  <table className="customs-base-table">
+                    <thead>
+                      <tr>
+                        <th>Renglon</th>
+                        <th>U.S.</th>
+                        <th>R.D.</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {customsPresentation?.baseRows.map((row) => (
+                        <tr key={row.key} className={row.emphasis ? "customs-emphasis-row" : ""}>
+                          <th>{row.label}</th>
+                          <td>{formatMoney(row.usd, "USD")}</td>
+                          <td>{formatMoney(row.dop, "DOP")}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                <div className="customs-table-scroll">
+                  <table className="customs-estimate-table">
+                    <thead>
+                      <tr className="customs-usd-row">
+                        <th>Estimacion en USD$</th>
+                        {customsPresentation?.modalities.map((modality) => (
+                          <td key={modality.key}>{formatMoney(modality.estimacionUsd, "USD")}</td>
+                        ))}
+                      </tr>
+                      <tr>
+                        <th></th>
+                        {customsPresentation?.modalities.map((modality) => (
+                          <th key={modality.key}>{modality.label}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {customsPresentation?.modalityRows.map((row) => (
+                        <tr
+                          key={row.key}
+                          className={`${row.emphasis ? "customs-emphasis-row" : ""} ${row.final ? "customs-final-row" : ""}`.trim()}
+                        >
+                          <th>{row.label}</th>
+                          {customsPresentation.modalities.map((modality) => (
+                            <td key={`${modality.key}-${row.key}`}>{formatMoney(modality[row.key], row.currency)}</td>
+                          ))}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          )}
         </section>
       )}
 

@@ -911,8 +911,201 @@ h1 {
   justify-content: flex-end;
 }
 
+.customs-estimate-panel {
+  display: grid;
+  gap: 18px;
+}
+
+.customs-flow-grid,
+.customs-calc-form,
+.customs-table-grid {
+  display: grid;
+  gap: 12px;
+}
+
+.customs-flow-grid {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+.customs-step-card {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 14px;
+  background: #f8fafc;
+  display: grid;
+  gap: 10px;
+  align-content: start;
+}
+
+.customs-step-card label,
+.customs-calc-form label {
+  display: grid;
+  gap: 7px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.customs-step-number {
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  display: inline-grid;
+  place-items: center;
+  background: var(--primary);
+  color: #fff;
+  font-weight: 800;
+  font-size: 13px;
+}
+
+.customs-step-wide {
+  grid-column: span 1;
+}
+
+.customs-loader {
+  border: 1px solid #bfdbfe;
+  background: #eff6ff;
+  color: #1e40af;
+  border-radius: 8px;
+  padding: 12px;
+}
+
+.customs-selected-card {
+  border: 1px solid #bbf7d0;
+  background: #f0fdf4;
+  border-radius: 8px;
+  padding: 14px;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.customs-selected-card span {
+  display: block;
+  color: #166534;
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+  margin-bottom: 4px;
+}
+
+.customs-selected-card strong {
+  color: #052e16;
+  overflow-wrap: anywhere;
+}
+
+.customs-selected-spec {
+  grid-column: 1 / -1;
+}
+
+.customs-calc-form {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  align-items: end;
+}
+
+.customs-calc-actions {
+  display: flex;
+  align-items: end;
+}
+
+.customs-calc-actions .btn {
+  width: 100%;
+  min-height: 42px;
+}
+
+.customs-table-grid {
+  grid-template-columns: minmax(260px, 0.85fr) minmax(520px, 1.65fr);
+  align-items: start;
+}
+
+.customs-table-scroll {
+  width: 100%;
+  overflow-x: auto;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: var(--shadow);
+}
+
+.customs-base-table,
+.customs-estimate-table {
+  width: 100%;
+  min-width: 420px;
+  border-collapse: collapse;
+}
+
+.customs-estimate-table {
+  min-width: 760px;
+}
+
+.customs-base-table th,
+.customs-base-table td,
+.customs-estimate-table th,
+.customs-estimate-table td {
+  border-bottom: 1px solid var(--line);
+  padding: 12px 14px;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.customs-base-table th:first-child,
+.customs-base-table td:first-child,
+.customs-estimate-table th:first-child,
+.customs-estimate-table td:first-child {
+  text-align: left;
+}
+
+.customs-base-table thead th,
+.customs-estimate-table thead th {
+  color: #0f172a;
+  background: #f8fafc;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.customs-base-table tbody th,
+.customs-estimate-table tbody th {
+  color: #334155;
+  font-weight: 800;
+}
+
+.customs-usd-row th,
+.customs-usd-row td {
+  background: #fff7ed;
+  color: #111827;
+  font-weight: 900;
+}
+
+.customs-emphasis-row th,
+.customs-emphasis-row td {
+  font-weight: 900;
+  background: #f8fafc;
+}
+
+.customs-final-row th,
+.customs-final-row td {
+  color: #166534;
+  font-size: 16px;
+  border-top: 2px solid #0f172a;
+}
+
+.customs-candidates h3 {
+  margin: 0 0 10px;
+}
+
 @media (max-width: 1024px) {
   .card-section {
+    grid-template-columns: 1fr;
+  }
+
+  .customs-flow-grid,
+  .customs-calc-form,
+  .customs-table-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .customs-table-grid {
     grid-template-columns: 1fr;
   }
 }
@@ -985,8 +1178,17 @@ h1 {
 
   .form-grid,
   .users-admin-grid,
-  .financial-filters {
+  .financial-filters,
+  .customs-flow-grid,
+  .customs-calc-form,
+  .customs-table-grid,
+  .customs-selected-card {
     grid-template-columns: 1fr;
+  }
+
+  .customs-calc-actions,
+  .customs-selected-spec {
+    grid-column: span 1;
   }
 
   .quote-vehicle-select,
