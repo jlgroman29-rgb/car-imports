@@ -105,6 +105,11 @@ VALID_TIPOS_COSTO = [
 VALID_QUOTE_STATUSES = ["borrador", "emitida", "cancelada", "vencida", "aprobada", "convertida"]
 
 CUSTOMS_VALUES_SOURCE_YEAR = "2025-2026"
+CUSTOMS_ESTIMATE_MODALITIES = {
+    "dealer": Decimal("0.10"),
+    "particular": Decimal("0.20"),
+    "dr_cafta": Decimal("0"),
+}
 CUSTOMS_VALUE_COLUMN_ALIASES = {
     "marca": "marca",
     "brand": "marca",
@@ -322,6 +327,177 @@ def serialize_customs_value(row):
         "valor_aduanas": float(valor) if valor is not None else None,
         "source_year": row.get("source_year"),
         "created_at": row.get("created_at"),
+    }
+
+
+def decimal_to_float(value):
+    if value is None:
+        return None
+
+    return float(value)
+
+
+def parse_required_decimal(data, field_name, allow_zero=True):
+    if field_name not in data or data.get(field_name) in (None, ""):
+        return None, {
+            "status": "error",
+            "message": f"{field_name} es requerido"
+        }
+
+    value = parse_customs_decimal(data.get(field_name))
+    if value is None:
+        return None, {
+            "status": "error",
+            "message": f"{field_name} debe ser numÃ©rico"
+        }
+
+    if value < 0 or (not allow_zero and value == 0):
+        operator = ">= 0" if allow_zero else "> 0"
+        return None, {
+            "status": "error",
+            "message": f"{field_name} debe ser {operator}"
+        }
+
+    return value, None
+
+
+def parse_optional_decimal(data, field_name, default=Decimal("0")):
+    if field_name not in data or data.get(field_name) in (None, ""):
+        return default, None
+
+    value = parse_customs_decimal(data.get(field_name))
+    if value is None:
+        return None, {
+            "status": "error",
+            "message": f"{field_name} debe ser numÃ©rico"
+        }
+
+    if value < 0:
+        return None, {
+            "status": "error",
+            "message": f"{field_name} no puede ser negativo"
+        }
+
+    return value, None
+
+
+def fetch_customs_value_by_id(conn, customs_value_id):
+    import psycopg2.extras
+
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("""
+        SELECT id, marca, modelo, anio, pais, especificacion_producto,
+               valor_aduanas, source_year, created_at
+        FROM customs_vehicle_values
+        WHERE id = %s
+        LIMIT 1;
+    """, (customs_value_id,))
+    row = cur.fetchone()
+    cur.close()
+    return row
+
+
+def find_customs_value_candidates(conn, data):
+    import psycopg2.extras
+
+    marca = normalize_customs_text(data.get("marca"))
+    modelo = normalize_customs_text(data.get("modelo"))
+    anio = parse_customs_year(data.get("anio"))
+    especificacion = normalize_customs_text(data.get("especificacion"))
+
+    missing_fields = []
+    if not marca:
+        missing_fields.append("marca")
+    if not modelo:
+        missing_fields.append("modelo")
+    if data.get("anio") in (None, ""):
+        missing_fields.append("anio")
+    if missing_fields:
+        return None, {
+            "status": "error",
+            "message": f"Faltan campos para buscar valor Aduanas: {', '.join(missing_fields)}"
+        }
+
+    if anio is None:
+        return None, {
+            "status": "error",
+            "message": "anio debe ser numÃ©rico"
+        }
+
+    filters = [
+        "marca ILIKE %s",
+        "modelo ILIKE %s",
+        "anio = %s",
+    ]
+    params = [marca, modelo, anio]
+
+    if especificacion:
+        filters.append("especificacion_producto ILIKE %s")
+        params.append(f"%{especificacion}%")
+
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute(f"""
+        SELECT id, marca, modelo, anio, pais, especificacion_producto,
+               valor_aduanas, source_year, created_at
+        FROM customs_vehicle_values
+        WHERE {" AND ".join(filters)}
+        ORDER BY marca, modelo, anio DESC, especificacion_producto NULLS LAST
+        LIMIT 25;
+    """, tuple(params))
+    rows = cur.fetchall()
+    cur.close()
+    return rows, None
+
+
+def calculate_customs_modality(cif_usd, tasa_cambio, gravamen_rate, marbete_dop, co2_dop, servicios_aduaneros_dop):
+    gravamen_usd = (cif_usd * gravamen_rate).quantize(Decimal("0.01"))
+    itbis_base_usd = cif_usd + gravamen_usd
+    itbis_usd = (itbis_base_usd * Decimal("0.18")).quantize(Decimal("0.01"))
+    subtotal_usd = (cif_usd + gravamen_usd + itbis_usd).quantize(Decimal("0.01"))
+    subtotal_dop = (subtotal_usd * tasa_cambio).quantize(Decimal("0.01"))
+    total_dop = (subtotal_dop + marbete_dop + co2_dop + servicios_aduaneros_dop).quantize(Decimal("0.01"))
+
+    return {
+        "gravamen_usd": decimal_to_float(gravamen_usd),
+        "itbis_usd": decimal_to_float(itbis_usd),
+        "subtotal_usd": decimal_to_float(subtotal_usd),
+        "subtotal_dop": decimal_to_float(subtotal_dop),
+        "marbete_dop": decimal_to_float(marbete_dop),
+        "co2_dop": decimal_to_float(co2_dop),
+        "servicios_aduaneros_dop": decimal_to_float(servicios_aduaneros_dop),
+        "total_dop": decimal_to_float(total_dop),
+    }
+
+
+def build_customs_estimate(customs_value, inputs):
+    fob_usd = Decimal(str(customs_value["valor_aduanas"])).quantize(Decimal("0.01"))
+    seguro_usd = (fob_usd * Decimal("0.02")).quantize(Decimal("0.01"))
+    cif_usd = (fob_usd + seguro_usd + inputs["flete_usd"]).quantize(Decimal("0.01"))
+
+    modalidades = {}
+    for name, gravamen_rate in CUSTOMS_ESTIMATE_MODALITIES.items():
+        modalidades[name] = calculate_customs_modality(
+            cif_usd,
+            inputs["tasa_cambio"],
+            gravamen_rate,
+            inputs["marbete_dop"],
+            inputs["co2_dop"],
+            inputs["servicios_aduaneros_dop"],
+        )
+
+    return {
+        "customs_value": serialize_customs_value(customs_value),
+        "inputs": {
+            "tasa_cambio": decimal_to_float(inputs["tasa_cambio"]),
+            "fob_usd": decimal_to_float(fob_usd),
+            "flete_usd": decimal_to_float(inputs["flete_usd"]),
+            "seguro_usd": decimal_to_float(seguro_usd),
+            "cif_usd": decimal_to_float(cif_usd),
+            "marbete_dop": decimal_to_float(inputs["marbete_dop"]),
+            "co2_dop": decimal_to_float(inputs["co2_dop"]),
+            "servicios_aduaneros_dop": decimal_to_float(inputs["servicios_aduaneros_dop"]),
+        },
+        "modalidades": modalidades,
     }
 
 
@@ -1570,6 +1746,95 @@ def get_customs_values():
             "status": "OK",
             "count": len(rows),
             "data": [serialize_customs_value(row) for row in rows]
+        }
+
+    except Exception as e:
+        return {"status": "error", "message": str(e)}, 500
+
+
+@app.route("/customs-estimate", methods=["POST"])
+def create_customs_estimate():
+    try:
+        data = request.get_json(silent=True) or {}
+
+        tasa_cambio, error = parse_required_decimal(data, "tasa_cambio", allow_zero=False)
+        if error:
+            return error, 400
+
+        flete_usd, error = parse_required_decimal(data, "flete_usd", allow_zero=True)
+        if error:
+            return error, 400
+
+        marbete_dop, error = parse_optional_decimal(data, "marbete_dop")
+        if error:
+            return error, 400
+
+        co2_dop, error = parse_optional_decimal(data, "co2_dop")
+        if error:
+            return error, 400
+
+        servicios_aduaneros_dop, error = parse_optional_decimal(data, "servicios_aduaneros_dop")
+        if error:
+            return error, 400
+
+        conn = get_connection()
+        ensure_customs_vehicle_values_table(conn)
+
+        customs_value = None
+        if data.get("customs_value_id") not in (None, ""):
+            try:
+                customs_value_id = int(data.get("customs_value_id"))
+            except (TypeError, ValueError):
+                conn.close()
+                return {
+                    "status": "error",
+                    "message": "customs_value_id debe ser numÃ©rico"
+                }, 400
+
+            customs_value = fetch_customs_value_by_id(conn, customs_value_id)
+            if not customs_value:
+                conn.close()
+                return {
+                    "status": "error",
+                    "message": f"customs_value_id {customs_value_id} no existe"
+                }, 404
+        else:
+            candidates, error = find_customs_value_candidates(conn, data)
+            if error:
+                conn.close()
+                return error, 400
+
+            if not candidates:
+                conn.close()
+                return {
+                    "status": "error",
+                    "message": "No se encontraron valores de Aduanas para los criterios enviados",
+                    "candidates": []
+                }, 404
+
+            if len(candidates) > 1:
+                conn.close()
+                return {
+                    "status": "error",
+                    "message": "La bÃºsqueda devolviÃ³ mÃºltiples valores. EnvÃ­a customs_value_id o una especificaciÃ³n mÃ¡s precisa.",
+                    "candidates": [serialize_customs_value(row) for row in candidates]
+                }, 400
+
+            customs_value = candidates[0]
+
+        conn.close()
+
+        estimate = build_customs_estimate(customs_value, {
+            "tasa_cambio": tasa_cambio,
+            "flete_usd": flete_usd,
+            "marbete_dop": marbete_dop,
+            "co2_dop": co2_dop,
+            "servicios_aduaneros_dop": servicios_aduaneros_dop,
+        })
+
+        return {
+            "status": "success",
+            "data": estimate
         }
 
     except Exception as e:
