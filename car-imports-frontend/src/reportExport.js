@@ -1113,6 +1113,119 @@ const exportInventoryIntelligenceToPdf = ({
   printWindow.document.close();
 };
 
+const buildCustomsEstimatePdfHtml = ({ estimate, generatedAt }) => {
+  const customsValue = estimate?.customs_value || {};
+  const inputs = estimate?.inputs || {};
+  const modalidades = estimate?.modalidades || {};
+  const presentation = estimate?.presentation || null;
+  const baseRows = (presentation?.baseRows || [
+    { key: "fob", label: "FOB", usd: inputs.fob_usd || customsValue.valor_aduanas || 0, dop: 0 },
+    { key: "seguro", label: "Seguro", usd: inputs.seguro_usd || 0, dop: 0 },
+    { key: "flete", label: "Flete", usd: inputs.flete_usd || 0, dop: 0 },
+    { key: "cif", label: "Valor CIF", usd: inputs.cif_usd || 0, dop: 0, emphasis: true }
+  ])
+    .map((row) => `<tr class="${row.emphasis ? "emphasis" : ""}">
+      <th>${escapeXml(row.label)}</th>
+      <td class="num">US$${formatAmount(row.usd || 0)}</td>
+      <td class="num">RD$${formatAmount(row.dop || 0)}</td>
+    </tr>`)
+    .join("");
+  const modalities = presentation?.modalities || [
+    { key: "dealer", label: "Dealer", gravamenDop: modalidades.dealer?.gravamen_dop || 0, itbisDop: modalidades.dealer?.itbis_dop || 0, totalFinalDop: modalidades.dealer?.total_dop || 0, estimacionUsd: 0 },
+    { key: "particular", label: "Particular", gravamenDop: modalidades.particular?.gravamen_dop || 0, itbisDop: modalidades.particular?.itbis_dop || 0, totalFinalDop: modalidades.particular?.total_dop || 0, estimacionUsd: 0 },
+    { key: "dr_cafta", label: "DR-CAFTA", gravamenDop: modalidades.dr_cafta?.gravamen_dop || 0, itbisDop: modalidades.dr_cafta?.itbis_dop || 0, totalFinalDop: modalidades.dr_cafta?.total_dop || 0, estimacionUsd: 0 }
+  ];
+  const modalityRows = presentation?.modalityRows || [
+    { key: "gravamenDop", label: "Gravamen", currency: "DOP" },
+    { key: "itbisDop", label: "ITBIS", currency: "DOP" },
+    { key: "totalFinalDop", label: "Total Final", currency: "DOP", final: true }
+  ];
+  const modalityHeader = modalities.map((modality) => `<td class="num">US$${formatAmount(modality.estimacionUsd || 0)}</td>`).join("");
+  const modalityNames = modalities.map((modality) => `<th>${escapeXml(modality.label)}</th>`).join("");
+  const modalityBody = modalityRows
+    .map((row) => `<tr class="${row.emphasis ? "emphasis" : ""} ${row.final ? "final" : ""}">
+      <th>${escapeXml(row.label)}</th>
+      ${modalities
+        .map((modality) => `<td class="num">${row.currency === "USD" ? "US$" : "RD$"}${formatAmount(modality[row.key] || 0)}</td>`)
+        .join("")}
+    </tr>`)
+    .join("");
+
+  return `<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Estimacion Aduanal</title>
+  <style>
+    ${pdfBrandStyles}
+    body { font-family: Arial, sans-serif; color: #111827; padding: 28px; }
+    .summary-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin: 18px 0; }
+    .summary-card { border: 1px solid #e5e7eb; border-radius: 8px; padding: 12px; }
+    .summary-card span { display: block; color: #64748b; font-size: 11px; text-transform: uppercase; font-weight: 700; margin-bottom: 4px; }
+    .summary-card strong { display: block; font-size: 14px; color: #111827; }
+    table { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 12px; }
+    th, td { border: 1px solid #e5e7eb; padding: 9px; text-align: left; vertical-align: top; }
+    th { background: #eff6ff; color: #1e3a8a; }
+    .table-title { margin: 18px 0 4px; color: #111827; font-size: 15px; }
+    .num { text-align: right; white-space: nowrap; }
+    .usd-row th, .usd-row td { background: #fff7ed; color: #111827; font-weight: 800; }
+    .emphasis th, .emphasis td { background: #f8fafc; font-weight: 800; }
+    .final th, .final td { color: #166534; font-size: 14px; font-weight: 900; }
+    .spec { grid-column: 1 / -1; }
+    @media print { body { padding: 0; } }
+  </style>
+</head>
+<body>
+  ${buildPdfBrandHeader({ title: "Estimacion Aduanal", meta: `Generado: ${generatedAt}` })}
+  <section class="summary-grid">
+    <div class="summary-card"><span>Marca</span><strong>${escapeXml(customsValue.marca || "")}</strong></div>
+    <div class="summary-card"><span>Modelo</span><strong>${escapeXml(customsValue.modelo || "")}</strong></div>
+    <div class="summary-card"><span>Ano</span><strong>${escapeXml(customsValue.anio || "")}</strong></div>
+    <div class="summary-card"><span>Pais</span><strong>${escapeXml(customsValue.pais || "")}</strong></div>
+    <div class="summary-card"><span>Valor Aduanas</span><strong>US$${formatAmount(customsValue.valor_aduanas || 0)}</strong></div>
+    <div class="summary-card spec"><span>Especificacion</span><strong>${escapeXml(customsValue.especificacion_producto || "")}</strong></div>
+    <div class="summary-card"><span>Tasa</span><strong>${escapeXml(inputs.tasa_cambio || 0)}</strong></div>
+    <div class="summary-card"><span>Flete</span><strong>US$${formatAmount(inputs.flete_usd || 0)}</strong></div>
+  </section>
+  <h3 class="table-title">Base FOB / CIF</h3>
+  <table>
+    <thead>
+      <tr><th>Renglon</th><th>U.S.</th><th>R.D.</th></tr>
+    </thead>
+    <tbody>${baseRows}</tbody>
+  </table>
+  <h3 class="table-title">Estimacion por modalidad</h3>
+  <table>
+    <thead>
+      <tr class="usd-row"><th>Estimacion en USD$</th>${modalityHeader}</tr>
+      <tr><th></th>${modalityNames}</tr>
+    </thead>
+    <tbody>${modalityBody}</tbody>
+  </table>
+</body>
+</html>`;
+};
+
+const exportCustomsEstimateToPdf = ({ estimate, printWindow }) => {
+  if (!estimate) {
+    throw new Error("No hay estimacion para exportar.");
+  }
+
+  if (!printWindow) {
+    throw new Error("No se pudo abrir la ventana de impresion. Habilita los pop-ups e intentalo de nuevo.");
+  }
+
+  const generatedAt = new Date().toLocaleString("es-DO");
+  printWindow.onload = () => {
+    printWindow.focus();
+    printWindow.print();
+  };
+
+  printWindow.document.open();
+  printWindow.document.write(buildCustomsEstimatePdfHtml({ estimate, generatedAt }));
+  printWindow.document.close();
+};
+
 export const exportCostReport = ({ format = EXPORT_FORMATS.XLSX, reportRows, estadoLabel, printWindow = null }) => {
   if (format === EXPORT_FORMATS.XLSX) {
     exportReportToXlsx({ reportRows, estadoLabel });
@@ -1179,6 +1292,15 @@ export const exportInventoryIntelligenceReport = ({
 
   if (format === EXPORT_FORMATS.PDF) {
     exportInventoryIntelligenceToPdf({ summary, inventoryAgeRows, profitableRows, lossRows, brandRows, estadoLabel, printWindow });
+    return;
+  }
+
+  throw new Error("Formato de exportacion no soportado.");
+};
+
+export const exportCustomsEstimateReport = ({ format = EXPORT_FORMATS.PDF, estimate, printWindow = null }) => {
+  if (format === EXPORT_FORMATS.PDF) {
+    exportCustomsEstimateToPdf({ estimate, printWindow });
     return;
   }
 
