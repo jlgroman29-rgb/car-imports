@@ -2,3 +2,4 @@ Flask
 flasgger
 flask-cors
 psycopg2-binary
+openpyxl

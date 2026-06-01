@@ -1,12 +1,14 @@
-from flask import Flask, request, send_from_directory
+from flask import Flask, has_request_context, request, send_from_directory
 from datetime import datetime
 import base64
+from decimal import Decimal, InvalidOperation
 import hashlib
 import hmac
 import json
 import os
 import psycopg2
 import time
+import unicodedata
 import uuid
 import click
 from functools import wraps
@@ -102,6 +104,39 @@ VALID_TIPOS_COSTO = [
 
 VALID_QUOTE_STATUSES = ["borrador", "emitida", "cancelada", "vencida", "aprobada", "convertida"]
 
+CUSTOMS_VALUES_SOURCE_YEAR = "2025-2026"
+CUSTOMS_VALUE_COLUMN_ALIASES = {
+    "marca": "marca",
+    "brand": "marca",
+    "make": "marca",
+    "modelo": "modelo",
+    "model": "modelo",
+    "ano": "anio",
+    "anio": "anio",
+    "year": "anio",
+    "pais": "pais",
+    "pais origen": "pais",
+    "pais de origen": "pais",
+    "origen": "pais",
+    "country": "pais",
+    "especificacion": "especificacion_producto",
+    "especificaciones": "especificacion_producto",
+    "especificacion producto": "especificacion_producto",
+    "especificacion del producto": "especificacion_producto",
+    "producto": "especificacion_producto",
+    "descripcion": "especificacion_producto",
+    "version": "especificacion_producto",
+    "trim": "especificacion_producto",
+    "valor": "valor_aduanas",
+    "valor aduanas": "valor_aduanas",
+    "valor de aduanas": "valor_aduanas",
+    "valor aduana": "valor_aduanas",
+    "valor aduanal": "valor_aduanas",
+    "valor fob": "valor_aduanas",
+    "fob": "valor_aduanas",
+    "precio": "valor_aduanas",
+}
+
 
 def get_connection():
     return psycopg2.connect(**app.config["DB_CONFIG"])
@@ -179,6 +214,270 @@ def ensure_vehicle_documents_table(conn):
     """)
     conn.commit()
     cur.close()
+
+
+def ensure_customs_vehicle_values_table(conn):
+    cur = conn.cursor()
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS customs_vehicle_values (
+            id SERIAL PRIMARY KEY,
+            marca TEXT NOT NULL,
+            modelo TEXT NOT NULL,
+            anio INTEGER NOT NULL,
+            pais TEXT,
+            especificacion_producto TEXT,
+            valor_aduanas NUMERIC(14, 2) NOT NULL,
+            source_year TEXT NOT NULL,
+            created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+    """)
+    cur.execute("""
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_customs_vehicle_values_unique
+        ON customs_vehicle_values (
+            LOWER(marca),
+            LOWER(modelo),
+            anio,
+            LOWER(COALESCE(pais, '')),
+            LOWER(COALESCE(especificacion_producto, '')),
+            source_year
+        );
+    """)
+    conn.commit()
+    cur.close()
+
+
+def normalize_customs_header(value):
+    text = str(value or "").strip().lower()
+    text = unicodedata.normalize("NFKD", text)
+    text = "".join(ch for ch in text if not unicodedata.combining(ch))
+    text = text.replace("_", " ").replace("-", " ").replace("/", " ")
+    return " ".join(text.split())
+
+
+def map_customs_column(value):
+    normalized = normalize_customs_header(value)
+    if normalized in CUSTOMS_VALUE_COLUMN_ALIASES:
+        return CUSTOMS_VALUE_COLUMN_ALIASES[normalized]
+
+    for pattern, mapped_name in CUSTOMS_VALUE_COLUMN_ALIASES.items():
+        if pattern in normalized:
+            return mapped_name
+
+    return None
+
+
+def normalize_customs_text(value):
+    if value is None:
+        return None
+
+    text = str(value).strip()
+    return " ".join(text.split()) or None
+
+
+def parse_customs_year(value):
+    if value is None or value == "":
+        return None
+
+    try:
+        return int(float(str(value).strip()))
+    except (TypeError, ValueError):
+        return None
+
+
+def parse_customs_decimal(value):
+    if value is None or value == "":
+        return None
+
+    if isinstance(value, Decimal):
+        return value
+
+    if isinstance(value, (int, float)):
+        return Decimal(str(value)).quantize(Decimal("0.01"))
+
+    text = str(value).strip()
+    if not text:
+        return None
+
+    cleaned = "".join(ch for ch in text if ch.isdigit() or ch in ",.-")
+    if "," in cleaned and "." in cleaned:
+        cleaned = cleaned.replace(",", "")
+    elif "," in cleaned:
+        cleaned = cleaned.replace(",", ".")
+
+    try:
+        return Decimal(cleaned).quantize(Decimal("0.01"))
+    except (InvalidOperation, ValueError):
+        return None
+
+
+def serialize_customs_value(row):
+    valor = row.get("valor_aduanas")
+    return {
+        "id": row.get("id"),
+        "marca": row.get("marca"),
+        "modelo": row.get("modelo"),
+        "anio": row.get("anio"),
+        "pais": row.get("pais"),
+        "especificacion_producto": row.get("especificacion_producto"),
+        "valor_aduanas": float(valor) if valor is not None else None,
+        "source_year": row.get("source_year"),
+        "created_at": row.get("created_at"),
+    }
+
+
+def detect_customs_header(row):
+    mapped_columns = {}
+    for index, value in enumerate(row):
+        mapped_name = map_customs_column(value)
+        if mapped_name and mapped_name not in mapped_columns:
+            mapped_columns[mapped_name] = index
+
+    required = {"marca", "modelo", "anio", "valor_aduanas"}
+    if required.issubset(mapped_columns):
+        return mapped_columns
+
+    return None
+
+
+def row_to_customs_record(row, columns, source_year):
+    marca = normalize_customs_text(row[columns["marca"]])
+    modelo = normalize_customs_text(row[columns["modelo"]])
+    anio = parse_customs_year(row[columns["anio"]])
+    valor_aduanas = parse_customs_decimal(row[columns["valor_aduanas"]])
+
+    pais = None
+    if "pais" in columns:
+        pais = normalize_customs_text(row[columns["pais"]])
+
+    especificacion_producto = None
+    if "especificacion_producto" in columns:
+        especificacion_producto = normalize_customs_text(row[columns["especificacion_producto"]])
+
+    if not marca or not modelo or anio is None or valor_aduanas is None:
+        return None
+
+    return {
+        "marca": marca,
+        "modelo": modelo,
+        "anio": anio,
+        "pais": pais,
+        "especificacion_producto": especificacion_producto,
+        "valor_aduanas": valor_aduanas,
+        "source_year": source_year,
+    }
+
+
+def insert_customs_record(cur, record):
+    cur.execute("""
+        INSERT INTO customs_vehicle_values (
+            marca,
+            modelo,
+            anio,
+            pais,
+            especificacion_producto,
+            valor_aduanas,
+            source_year
+        )
+        SELECT %s, %s, %s, %s, %s, %s, %s
+        WHERE NOT EXISTS (
+            SELECT 1
+            FROM customs_vehicle_values
+            WHERE LOWER(marca) = LOWER(%s)
+              AND LOWER(modelo) = LOWER(%s)
+              AND anio = %s
+              AND LOWER(COALESCE(pais, '')) = LOWER(COALESCE(%s, ''))
+              AND LOWER(COALESCE(especificacion_producto, '')) = LOWER(COALESCE(%s, ''))
+              AND source_year = %s
+        )
+        RETURNING id;
+    """, (
+        record["marca"],
+        record["modelo"],
+        record["anio"],
+        record["pais"],
+        record["especificacion_producto"],
+        record["valor_aduanas"],
+        record["source_year"],
+        record["marca"],
+        record["modelo"],
+        record["anio"],
+        record["pais"],
+        record["especificacion_producto"],
+        record["source_year"],
+    ))
+    return cur.fetchone() is not None
+
+
+def import_customs_vehicle_values(excel_path, source_year=CUSTOMS_VALUES_SOURCE_YEAR):
+    try:
+        from openpyxl import load_workbook
+    except ImportError as import_error:
+        raise RuntimeError("Instala openpyxl para importar archivos .xlsx") from import_error
+
+    if not os.path.exists(excel_path):
+        raise FileNotFoundError(f"Archivo no encontrado: {excel_path}")
+
+    workbook = load_workbook(excel_path, read_only=True, data_only=True)
+    worksheet = workbook.active
+
+    columns = None
+    data_start_row = None
+    scanned_rows = []
+    for row_number, row in enumerate(worksheet.iter_rows(min_row=1, max_row=25, values_only=True), start=1):
+        row_values = list(row)
+        scanned_rows.append(row_values)
+        detected_columns = detect_customs_header(row_values)
+        if detected_columns:
+            columns = detected_columns
+            data_start_row = row_number + 1
+            break
+
+    if not columns:
+        workbook.close()
+        raise ValueError("No se encontraron columnas requeridas: marca, modelo, anio y valor_aduanas")
+
+    conn = get_connection()
+    ensure_customs_vehicle_values_table(conn)
+    cur = conn.cursor()
+
+    summary = {
+        "status": "OK",
+        "source_year": source_year,
+        "file": os.path.basename(excel_path),
+        "sheet": worksheet.title,
+        "header_row": data_start_row - 1,
+        "processed": 0,
+        "inserted": 0,
+        "duplicates": 0,
+        "skipped": 0,
+    }
+
+    try:
+        rows_iter = worksheet.iter_rows(min_row=data_start_row, values_only=True)
+        for row in rows_iter:
+            summary["processed"] += 1
+            row_values = list(row)
+            record = row_to_customs_record(row_values, columns, source_year)
+            if not record:
+                summary["skipped"] += 1
+                continue
+
+            if insert_customs_record(cur, record):
+                summary["inserted"] += 1
+            else:
+                summary["duplicates"] += 1
+
+        log_audit(conn, "import", "customs_vehicle_values", source_year, summary)
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        cur.close()
+        conn.close()
+        workbook.close()
+
+    return summary
 
 
 def get_file_extension(filename):
@@ -449,6 +748,9 @@ def ensure_audit_logs_table(conn):
 
 
 def get_optional_authenticated_user():
+    if not has_request_context():
+        return None
+
     token = get_bearer_token()
     if not token:
         return None
@@ -1193,6 +1495,169 @@ def test_db():
         return {"status": "OK", "postgres": version[0]}
     except Exception as e:
         return {"error": str(e)}
+
+
+@app.cli.command("import-customs-values")
+@click.argument("excel_path", type=click.Path(exists=True, dir_okay=False))
+@click.option("--source-year", default=CUSTOMS_VALUES_SOURCE_YEAR, show_default=True)
+def import_customs_values_command(excel_path, source_year):
+    summary = import_customs_vehicle_values(excel_path, source_year)
+    click.echo(json.dumps(summary, ensure_ascii=False, indent=2, default=str))
+
+
+@app.route("/customs-values", methods=["GET"])
+def get_customs_values():
+    try:
+        conn = get_connection()
+        ensure_customs_vehicle_values_table(conn)
+
+        import psycopg2.extras
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+        filters = []
+        params = []
+
+        marca = normalize_customs_text(request.args.get("marca"))
+        modelo = normalize_customs_text(request.args.get("modelo"))
+        especificacion = normalize_customs_text(request.args.get("especificacion"))
+        anio = request.args.get("anio")
+
+        if marca:
+            filters.append("marca ILIKE %s")
+            params.append(f"%{marca}%")
+
+        if modelo:
+            filters.append("modelo ILIKE %s")
+            params.append(f"%{modelo}%")
+
+        if anio:
+            parsed_anio = parse_customs_year(anio)
+            if parsed_anio is None:
+                cur.close()
+                conn.close()
+                return {"status": "error", "message": "anio debe ser numérico"}, 400
+
+            filters.append("anio = %s")
+            params.append(parsed_anio)
+
+        if especificacion:
+            filters.append("especificacion_producto ILIKE %s")
+            params.append(f"%{especificacion}%")
+
+        limit = request.args.get("limit", "100")
+        try:
+            limit = min(max(int(limit), 1), 500)
+        except ValueError:
+            cur.close()
+            conn.close()
+            return {"status": "error", "message": "limit debe ser numérico"}, 400
+
+        where_clause = f"WHERE {' AND '.join(filters)}" if filters else ""
+        cur.execute(f"""
+            SELECT id, marca, modelo, anio, pais, especificacion_producto,
+                   valor_aduanas, source_year, created_at
+            FROM customs_vehicle_values
+            {where_clause}
+            ORDER BY marca, modelo, anio DESC, especificacion_producto NULLS LAST
+            LIMIT %s;
+        """, (*params, limit))
+
+        rows = cur.fetchall()
+        cur.close()
+        conn.close()
+
+        return {
+            "status": "OK",
+            "count": len(rows),
+            "data": [serialize_customs_value(row) for row in rows]
+        }
+
+    except Exception as e:
+        return {"status": "error", "message": str(e)}, 500
+
+
+@app.route("/customs-values/options", methods=["GET"])
+def get_customs_values_options():
+    try:
+        conn = get_connection()
+        ensure_customs_vehicle_values_table(conn)
+
+        import psycopg2.extras
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+        marca = normalize_customs_text(request.args.get("marca"))
+        modelo = normalize_customs_text(request.args.get("modelo"))
+        anio_value = request.args.get("anio")
+        parsed_anio = None
+
+        if anio_value:
+            parsed_anio = parse_customs_year(anio_value)
+            if parsed_anio is None:
+                cur.close()
+                conn.close()
+                return {"status": "error", "message": "anio debe ser numérico"}, 400
+
+        cur.execute("""
+            SELECT MIN(marca) AS marca
+            FROM customs_vehicle_values
+            WHERE marca IS NOT NULL
+            GROUP BY LOWER(marca)
+            ORDER BY marca;
+        """)
+        marcas = [row["marca"] for row in cur.fetchall()]
+
+        modelos = []
+        anios = []
+        especificaciones = []
+
+        if marca:
+            cur.execute("""
+                SELECT MIN(modelo) AS modelo
+                FROM customs_vehicle_values
+                WHERE marca ILIKE %s
+                  AND modelo IS NOT NULL
+                GROUP BY LOWER(modelo)
+                ORDER BY modelo;
+            """, (marca,))
+            modelos = [row["modelo"] for row in cur.fetchall()]
+
+        if marca and modelo:
+            cur.execute("""
+                SELECT DISTINCT anio
+                FROM customs_vehicle_values
+                WHERE marca ILIKE %s
+                  AND modelo ILIKE %s
+                ORDER BY anio DESC;
+            """, (marca, modelo))
+            anios = [row["anio"] for row in cur.fetchall()]
+
+        if marca and modelo and parsed_anio is not None:
+            cur.execute("""
+                SELECT DISTINCT especificacion_producto
+                FROM customs_vehicle_values
+                WHERE marca ILIKE %s
+                  AND modelo ILIKE %s
+                  AND anio = %s
+                  AND especificacion_producto IS NOT NULL
+                ORDER BY especificacion_producto;
+            """, (marca, modelo, parsed_anio))
+            especificaciones = [row["especificacion_producto"] for row in cur.fetchall()]
+
+        cur.close()
+        conn.close()
+
+        return {
+            "status": "OK",
+            "data": {
+                "marcas": marcas,
+                "modelos": modelos,
+                "anios": anios,
+                "especificaciones": especificaciones
+            }
+        }
+
+    except Exception as e:
+        return {"status": "error", "message": str(e)}, 500
 
 
 @app.route("/vehicles", methods=["GET"])
