@@ -1064,7 +1064,7 @@ const exportFinancialReportToPdf = ({
   emptyMessage
 }) => {
   if (!printWindow) {
-    throw new Error("No se pudo abrir la ventana de impresiÃ³n. Habilita los pop-ups e intÃ©ntalo de nuevo.");
+    throw new Error("No se pudo abrir la ventana de impresión. Habilita los pop-ups e inténtalo de nuevo.");
   }
 
   printWindow.onload = () => {
@@ -1156,50 +1156,69 @@ const buildCustomsEstimatePdfHtml = ({ estimate, generatedAt }) => {
 <html>
 <head>
   <meta charset="utf-8" />
-  <title>Estimacion Aduanal</title>
+  <title>Estimación Aduanal</title>
   <style>
     ${pdfBrandStyles}
-    body { font-family: Arial, sans-serif; color: #111827; padding: 28px; }
-    .summary-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin: 18px 0; }
-    .summary-card { border: 1px solid #e5e7eb; border-radius: 8px; padding: 12px; }
+    @page { size: letter; margin: 7mm; }
+    body { font-family: Arial, sans-serif; color: #111827; margin: 0; padding: 18px; }
+    .summary-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 9px; margin: 12px 0; }
+    .summary-card { border: 1px solid #e5e7eb; border-radius: 8px; padding: 8px; }
     .summary-card span { display: block; color: #64748b; font-size: 11px; text-transform: uppercase; font-weight: 700; margin-bottom: 4px; }
-    .summary-card strong { display: block; font-size: 14px; color: #111827; }
-    table { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 12px; }
-    th, td { border: 1px solid #e5e7eb; padding: 9px; text-align: left; vertical-align: top; }
+    .summary-card strong { display: block; font-size: 13px; color: #111827; }
+    table { width: 100%; border-collapse: collapse; font-size: 11px; margin-top: 8px; }
+    th, td { border: 1px solid #e5e7eb; padding: 6px 7px; text-align: left; vertical-align: top; }
     th { background: #eff6ff; color: #1e3a8a; }
-    .table-title { margin: 18px 0 4px; color: #111827; font-size: 15px; }
+    .table-title { margin: 12px 0 4px; color: #111827; font-size: 14px; }
     .num { text-align: right; white-space: nowrap; }
     .usd-row th, .usd-row td { background: #fff7ed; color: #111827; font-weight: 800; }
     .emphasis th, .emphasis td { background: #f8fafc; font-weight: 800; }
-    .final th, .final td { color: #166534; font-size: 14px; font-weight: 900; }
+    .final th, .final td { color: #166534; font-size: 12px; font-weight: 900; }
     .spec { grid-column: 1 / -1; }
-    @media print { body { padding: 0; } }
+    @media print {
+      body { padding: 0; }
+      .brand-report-header { padding-bottom: 8px; margin-bottom: 10px; gap: 10px; border-bottom-width: 2px; }
+      .brand-report-left { gap: 10px; }
+      .brand-report-logo { width: 58px; height: 58px; }
+      .brand-report-kicker { font-size: 9px; margin-bottom: 2px; }
+      .brand-report-header h1 { font-size: 16px; margin-bottom: 2px; }
+      .brand-report-header p { font-size: 10px; margin: 1px 0; }
+      .brand-report-title { min-width: 170px; }
+      .brand-report-title h2 { font-size: 17px; margin-bottom: 4px; }
+      .summary-grid { gap: 6px; margin: 8px 0; }
+      .summary-card { padding: 5px 6px; border-radius: 6px; }
+      .summary-card span { font-size: 8.5px; margin-bottom: 2px; }
+      .summary-card strong { font-size: 10.5px; }
+      table { font-size: 9.5px; margin-top: 5px; page-break-inside: avoid; }
+      th, td { padding: 3.5px 5px; }
+      .table-title { margin: 8px 0 2px; font-size: 11.5px; }
+      .final th, .final td { font-size: 10.5px; }
+    }
   </style>
 </head>
 <body>
-  ${buildPdfBrandHeader({ title: "Estimacion Aduanal", meta: `Generado: ${generatedAt}` })}
+  ${buildPdfBrandHeader({ title: "Estimación Aduanal", meta: `Generado: ${generatedAt}` })}
   <section class="summary-grid">
     <div class="summary-card"><span>Marca</span><strong>${escapeXml(customsValue.marca || "")}</strong></div>
     <div class="summary-card"><span>Modelo</span><strong>${escapeXml(customsValue.modelo || "")}</strong></div>
-    <div class="summary-card"><span>Ano</span><strong>${escapeXml(customsValue.anio || "")}</strong></div>
-    <div class="summary-card"><span>Pais</span><strong>${escapeXml(customsValue.pais || "")}</strong></div>
+    <div class="summary-card"><span>Año</span><strong>${escapeXml(customsValue.anio || "")}</strong></div>
+    <div class="summary-card"><span>País</span><strong>${escapeXml(customsValue.pais || "")}</strong></div>
     <div class="summary-card"><span>Valor Aduanas / factura</span><strong>US$${formatAmount(effectiveFobUsd)}</strong></div>
     <div class="summary-card"><span>Valor tabla</span><strong>US$${formatAmount(customsValue.valor_aduanas || 0)}</strong></div>
-    <div class="summary-card spec"><span>Especificacion</span><strong>${escapeXml(customsValue.especificacion_producto || "")}</strong></div>
+    <div class="summary-card spec"><span>Especificación</span><strong>${escapeXml(customsValue.especificacion_producto || "")}</strong></div>
     <div class="summary-card"><span>Tasa</span><strong>${escapeXml(inputs.tasa_cambio || 0)}</strong></div>
     <div class="summary-card"><span>Flete</span><strong>US$${formatAmount(inputs.flete_usd || 0)}</strong></div>
   </section>
   <h3 class="table-title">Base FOB / CIF</h3>
   <table>
     <thead>
-      <tr><th>Renglon</th><th>U.S.</th><th>R.D.</th></tr>
+      <tr><th>Renglón</th><th>U.S.</th><th>R.D.</th></tr>
     </thead>
     <tbody>${baseRows}</tbody>
   </table>
-  <h3 class="table-title">Estimacion por modalidad</h3>
+  <h3 class="table-title">Estimación por modalidad</h3>
   <table>
     <thead>
-      <tr class="usd-row"><th>Estimacion en USD$</th>${modalityHeader}</tr>
+      <tr class="usd-row"><th>Estimación en USD$</th>${modalityHeader}</tr>
       <tr><th></th>${modalityNames}</tr>
     </thead>
     <tbody>${modalityBody}</tbody>
@@ -1274,7 +1293,7 @@ export const exportFinancialReport = ({
     return;
   }
 
-  throw new Error("Formato de exportaciÃ³n no soportado.");
+  throw new Error("Formato de exportación no soportado.");
 };
 
 export const exportInventoryIntelligenceReport = ({

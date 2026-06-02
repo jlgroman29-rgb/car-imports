@@ -2441,7 +2441,7 @@ const formatMoney = (value, currency = "USD") => {
 
     const printWindow = format === EXPORT_FORMATS.PDF ? window.open("", "_blank") : null;
     if (format === EXPORT_FORMATS.PDF && !printWindow) {
-      alert("No se pudo abrir la ventana de impresiÃ³n. Habilita los pop-ups e intÃ©ntalo de nuevo.");
+      alert("No se pudo abrir la ventana de impresión. Habilita los pop-ups e inténtalo de nuevo.");
       return;
     }
 
@@ -2766,7 +2766,7 @@ const formatMoney = (value, currency = "USD") => {
     { key: "costos", label: "Costos" },
     { key: "ventas", label: "Ventas" },
     { key: "cotizaciones", label: "Cotizaciones" },
-    { key: "estimacion_aduanal", label: "EstimaciÃ³n Aduanal" },
+    { key: "estimacion_aduanal", label: "Estimación Aduanal" },
     { key: "reportes", label: "Reportes" },
     { key: "analytics", label: "Analytics" },
     { key: "usuarios", label: "Usuarios", adminOnly: true },
@@ -3696,7 +3696,7 @@ const formatMoney = (value, currency = "USD") => {
         <section className="panel customs-estimate-panel">
           <div className="panel-title-row">
             <div>
-              <h2>EstimaciÃ³n Aduanal</h2>
+              <h2>Estimación Aduanal</h2>
               <p className="panel-subtitle">Selecciona la base de Aduanas y calcula escenarios por modalidad.</p>
             </div>
             <button
@@ -3705,7 +3705,7 @@ const formatMoney = (value, currency = "USD") => {
               onClick={handleExportCustomsEstimate}
               disabled={!customsEstimateResult || customsEstimateExporting}
             >
-              {customsEstimateExporting ? "Exportando..." : "Exportar EstimaciÃ³n"}
+              {customsEstimateExporting ? "Exportando..." : "Exportar Estimación"}
             </button>
           </div>
 
@@ -3757,7 +3757,7 @@ const formatMoney = (value, currency = "USD") => {
             <article className="customs-step-card">
               <span className="customs-step-number">3</span>
               <label>
-                AÃ±o
+                Año
                 <select
                   className="input-control"
                   name="anio"
@@ -3765,7 +3765,7 @@ const formatMoney = (value, currency = "USD") => {
                   onChange={handleCustomsSelectionChange}
                   disabled={!customsSelection.modelo || customsOptionsLoading}
                 >
-                  <option value="">Selecciona aÃ±o</option>
+                  <option value="">Selecciona año</option>
                   {customsOptions.anios.map((anio) => (
                     <option key={anio} value={anio}>{anio}</option>
                   ))}
@@ -3776,7 +3776,7 @@ const formatMoney = (value, currency = "USD") => {
             <article className="customs-step-card customs-step-wide">
               <span className="customs-step-number">4</span>
               <label>
-                EspecificaciÃ³n
+                Especificación
                 <select
                   className="input-control"
                   name="especificacion"
@@ -3784,7 +3784,7 @@ const formatMoney = (value, currency = "USD") => {
                   onChange={handleCustomsSelectionChange}
                   disabled={!customsSelection.anio || customsOptionsLoading}
                 >
-                  <option value="">Selecciona especificaciÃ³n</option>
+                  <option value="">Selecciona especificación</option>
                   {customsOptions.especificaciones.map((spec) => (
                     <option key={spec} value={spec}>{spec}</option>
                   ))}
@@ -3827,9 +3827,9 @@ const formatMoney = (value, currency = "USD") => {
                     <tr>
                       <th>Marca</th>
                       <th>Modelo</th>
-                      <th>AÃ±o</th>
-                      <th>PaÃ­s</th>
-                      <th>EspecificaciÃ³n</th>
+                      <th>Año</th>
+                      <th>País</th>
+                      <th>Especificación</th>
                       <th>Valor</th>
                       <th></th>
                     </tr>
@@ -3867,7 +3867,7 @@ const formatMoney = (value, currency = "USD") => {
                 <strong>{selectedCustomsValue.modelo}</strong>
               </div>
               <div>
-                <span>AÃ±o</span>
+                <span>Año</span>
                 <strong>{selectedCustomsValue.anio}</strong>
               </div>
               <div>
@@ -3892,7 +3892,7 @@ const formatMoney = (value, currency = "USD") => {
                 <strong>{formatMoney(selectedCustomsValue.valor_aduanas, "USD")}</strong>
               </div>
               <div className="customs-selected-spec">
-                <span>EspecificaciÃ³n</span>
+                <span>Especificación</span>
                 <strong>{selectedCustomsValue.especificacion_producto}</strong>
               </div>
             </article>
