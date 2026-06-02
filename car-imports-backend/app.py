@@ -478,7 +478,11 @@ def calculate_customs_modality(cif_usd, tasa_cambio, gravamen_rate, marbete_dop,
 
 
 def build_customs_estimate(customs_value, inputs):
-    fob_usd = Decimal(str(customs_value["valor_aduanas"])).quantize(Decimal("0.01"))
+    fob_source = inputs.get("fob_usd_override")
+    if fob_source is None:
+        fob_source = customs_value["valor_aduanas"]
+
+    fob_usd = Decimal(str(fob_source)).quantize(Decimal("0.01"))
     seguro_usd = (fob_usd * Decimal("0.02")).quantize(Decimal("0.01"))
     cif_usd = (fob_usd + seguro_usd + inputs["flete_usd"]).quantize(Decimal("0.01"))
 
@@ -498,6 +502,8 @@ def build_customs_estimate(customs_value, inputs):
         "inputs": {
             "tasa_cambio": decimal_to_float(inputs["tasa_cambio"]),
             "fob_usd": decimal_to_float(fob_usd),
+            "fob_original_usd": decimal_to_float(Decimal(str(customs_value["valor_aduanas"])).quantize(Decimal("0.01"))),
+            "fob_is_manual": fob_source != customs_value["valor_aduanas"],
             "flete_usd": decimal_to_float(inputs["flete_usd"]),
             "seguro_usd": decimal_to_float(seguro_usd),
             "cif_usd": decimal_to_float(cif_usd),
@@ -1792,6 +1798,12 @@ def create_customs_estimate():
         if error:
             return error, 400
 
+        fob_usd_override = None
+        if data.get("fob_usd") not in (None, ""):
+            fob_usd_override, error = parse_required_decimal(data, "fob_usd", allow_zero=False)
+            if error:
+                return error, 400
+
         conn = get_connection()
         ensure_customs_vehicle_values_table(conn)
 
@@ -1842,6 +1854,7 @@ def create_customs_estimate():
         estimate = build_customs_estimate(customs_value, {
             "tasa_cambio": tasa_cambio,
             "flete_usd": flete_usd,
+            "fob_usd_override": fob_usd_override,
             "marbete_dop": marbete_dop,
             "co2_dop": co2_dop,
             "servicios_aduaneros_dop": servicios_aduaneros_dop,

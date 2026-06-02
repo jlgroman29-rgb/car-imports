@@ -1116,10 +1116,11 @@ const exportInventoryIntelligenceToPdf = ({
 const buildCustomsEstimatePdfHtml = ({ estimate, generatedAt }) => {
   const customsValue = estimate?.customs_value || {};
   const inputs = estimate?.inputs || {};
+  const effectiveFobUsd = inputs.fob_usd || customsValue.valor_aduanas || 0;
   const modalidades = estimate?.modalidades || {};
   const presentation = estimate?.presentation || null;
   const baseRows = (presentation?.baseRows || [
-    { key: "fob", label: "FOB", usd: inputs.fob_usd || customsValue.valor_aduanas || 0, dop: 0 },
+    { key: "fob", label: "FOB", usd: effectiveFobUsd, dop: 0 },
     { key: "seguro", label: "Seguro", usd: inputs.seguro_usd || 0, dop: 0 },
     { key: "flete", label: "Flete", usd: inputs.flete_usd || 0, dop: 0 },
     { key: "cif", label: "Valor CIF", usd: inputs.cif_usd || 0, dop: 0, emphasis: true }
@@ -1182,7 +1183,8 @@ const buildCustomsEstimatePdfHtml = ({ estimate, generatedAt }) => {
     <div class="summary-card"><span>Modelo</span><strong>${escapeXml(customsValue.modelo || "")}</strong></div>
     <div class="summary-card"><span>Ano</span><strong>${escapeXml(customsValue.anio || "")}</strong></div>
     <div class="summary-card"><span>Pais</span><strong>${escapeXml(customsValue.pais || "")}</strong></div>
-    <div class="summary-card"><span>Valor Aduanas</span><strong>US$${formatAmount(customsValue.valor_aduanas || 0)}</strong></div>
+    <div class="summary-card"><span>Valor Aduanas / factura</span><strong>US$${formatAmount(effectiveFobUsd)}</strong></div>
+    <div class="summary-card"><span>Valor tabla</span><strong>US$${formatAmount(customsValue.valor_aduanas || 0)}</strong></div>
     <div class="summary-card spec"><span>Especificacion</span><strong>${escapeXml(customsValue.especificacion_producto || "")}</strong></div>
     <div class="summary-card"><span>Tasa</span><strong>${escapeXml(inputs.tasa_cambio || 0)}</strong></div>
     <div class="summary-card"><span>Flete</span><strong>US$${formatAmount(inputs.flete_usd || 0)}</strong></div>

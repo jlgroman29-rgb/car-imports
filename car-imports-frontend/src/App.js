@@ -67,6 +67,7 @@ const EMPTY_CUSTOMS_OPTIONS = {
   especificaciones: []
 };
 const EMPTY_CUSTOMS_ESTIMATE_FORM = {
+  valor_aduanas_usd: "",
   tasa_cambio: "",
   flete_usd: "785",
   marbete_dop: "0",
@@ -558,6 +559,7 @@ function App() {
     setCustomsEstimateMessage({ type: "", text: "" });
     setSelectedCustomsValue(null);
     setCustomsCandidates([]);
+    setCustomsEstimateForm((currentForm) => ({ ...currentForm, valor_aduanas_usd: "" }));
     setCustomsEstimateResult(null);
 
     const params = new URLSearchParams({
@@ -580,6 +582,10 @@ function App() {
       setCustomsCandidates(values);
       if (values.length === 1) {
         setSelectedCustomsValue(values[0]);
+        setCustomsEstimateForm((currentForm) => ({
+          ...currentForm,
+          valor_aduanas_usd: String(values[0].valor_aduanas ?? "")
+        }));
         setCustomsSelection((currentSelection) => ({
           ...currentSelection,
           pais: values[0].pais || ""
@@ -625,6 +631,7 @@ function App() {
 
     setCustomsSelection(nextSelection);
     setSelectedCustomsValue(null);
+    setCustomsEstimateForm((currentForm) => ({ ...currentForm, valor_aduanas_usd: "" }));
     if (name !== "pais") {
       setCustomsCandidates([]);
     }
@@ -642,6 +649,10 @@ function App() {
       const matchingCandidates = customsCandidates.filter((candidate) => (candidate.pais || "") === value);
       if (matchingCandidates.length === 1) {
         setSelectedCustomsValue(matchingCandidates[0]);
+        setCustomsEstimateForm((currentForm) => ({
+          ...currentForm,
+          valor_aduanas_usd: String(matchingCandidates[0].valor_aduanas ?? "")
+        }));
         setCustomsEstimateMessage({ type: "success", text: "Pais seleccionado para calcular con el valor correcto." });
       } else if (matchingCandidates.length > 1) {
         setCustomsEstimateMessage({
@@ -654,6 +665,10 @@ function App() {
 
   const handleSelectCustomsCandidate = (candidate) => {
     setSelectedCustomsValue(candidate);
+    setCustomsEstimateForm((currentForm) => ({
+      ...currentForm,
+      valor_aduanas_usd: String(candidate.valor_aduanas ?? "")
+    }));
     setCustomsSelection((currentSelection) => ({
       ...currentSelection,
       pais: candidate.pais || ""
@@ -677,10 +692,16 @@ function App() {
       return;
     }
 
+    const customFobValue = String(customsEstimateForm.valor_aduanas_usd ?? "").trim();
+    const fobUsd = parseEstimateNumber(customFobValue);
+    if (customFobValue === "" || fobUsd <= 0) {
+      setCustomsEstimateMessage({ type: "error", text: "Indica un valor FOB/factura mayor que cero." });
+      return;
+    }
+
     setCustomsEstimateLoading(true);
 
     try {
-      const fobUsd = parseEstimateNumber(selectedCustomsValue.valor_aduanas);
       const tasaCambio = parseEstimateNumber(customsEstimateForm.tasa_cambio);
       const fleteUsd = parseEstimateNumber(customsEstimateForm.flete_usd);
       const cifUsd = fobUsd + fobUsd * CUSTOMS_INSURANCE_RATE + fleteUsd;
@@ -694,6 +715,7 @@ function App() {
         },
         body: JSON.stringify({
           customs_value_id: selectedCustomsValue.id,
+          fob_usd: fobUsd,
           tasa_cambio: Number(customsEstimateForm.tasa_cambio),
           flete_usd: Number(customsEstimateForm.flete_usd),
           marbete_dop: Number(customsEstimateForm.marbete_dop),
@@ -3853,7 +3875,20 @@ const formatMoney = (value, currency = "USD") => {
                 <strong>{selectedCustomsValue.pais || "N/D"}</strong>
               </div>
               <div>
-                <span>Valor Aduanas</span>
+                <span>Valor Aduanas / factura</span>
+                <input
+                  className="input-control"
+                  type="number"
+                  step="0.01"
+                  min="0.01"
+                  name="valor_aduanas_usd"
+                  value={customsEstimateForm.valor_aduanas_usd}
+                  onChange={handleCustomsEstimateInputChange}
+                  required
+                />
+              </div>
+              <div>
+                <span>Valor tabla</span>
                 <strong>{formatMoney(selectedCustomsValue.valor_aduanas, "USD")}</strong>
               </div>
               <div className="customs-selected-spec">
