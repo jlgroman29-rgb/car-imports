@@ -1,4 +1,4 @@
-import { COMPANY_BRAND } from "./branding";
+import { COMPANY_BRAND, getCompanyLogoUrl, normalizeCompanySettings } from "./branding";
 
 const escapeHtml = (value) =>
   String(value ?? "")
@@ -41,13 +41,13 @@ const formatMoneyByCurrency = (value, currency = "USD") => {
   }
 };
 
-export const buildReceiptHtml = ({ vehicle, sale, estadoLabel }) => {
+export const buildReceiptHtml = ({ vehicle, sale, estadoLabel, companySettings = COMPANY_BRAND }) => {
   const saleCurrency = sale.moneda || "USD";
   const totalLabel = formatMoneyByCurrency(sale.precio_venta, saleCurrency);
   const exchangeRateLabel = sale.tasa_cambio ? Number(sale.tasa_cambio).toFixed(2) : "—";
   const saleDate = sale.fecha_venta || sale.fecha;
 
-  const company = COMPANY_BRAND;
+  const company = normalizeCompanySettings(companySettings);
 
   return `<!DOCTYPE html>
 <html lang="es">
@@ -212,7 +212,7 @@ export const buildReceiptHtml = ({ vehicle, sale, estadoLabel }) => {
 <body>
   <header class="company-header">
     <div class="company-left">
-      <img src="${company.logo}" class="company-logo" />
+      <img src="${escapeHtml(getCompanyLogoUrl(company))}" class="company-logo" />
       <div>
         <h1>${escapeHtml(company.name)}</h1>
         <p>${escapeHtml(company.address)}</p>

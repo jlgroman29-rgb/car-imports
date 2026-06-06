@@ -1366,6 +1366,49 @@ h1 {
   min-width: 920px;
 }
 
+.company-settings-panel {
+  border: 1px solid #bfdbfe;
+}
+
+.company-settings-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(260px, 0.6fr);
+  gap: 16px;
+  margin-top: 16px;
+}
+
+.company-settings-grid {
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.company-settings-preview {
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 16px;
+  background: #ffffff;
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+}
+
+.company-settings-preview img {
+  width: 82px;
+  height: 82px;
+  object-fit: contain;
+  flex: 0 0 auto;
+}
+
+.company-settings-preview h3 {
+  margin: 0 0 8px;
+  color: var(--ink);
+}
+
+.company-settings-preview p {
+  margin: 3px 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
 .role-pill {
   display: inline-block;
   border-radius: 999px;
@@ -1397,7 +1440,8 @@ h1 {
 }
 
 @media (max-width: 900px) {
-  .users-admin-grid {
+  .users-admin-grid,
+  .company-settings-layout {
     grid-template-columns: 1fr;
   }
 

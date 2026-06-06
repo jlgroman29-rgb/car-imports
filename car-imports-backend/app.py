@@ -104,6 +104,28 @@ VALID_TIPOS_COSTO = [
 
 VALID_QUOTE_STATUSES = ["borrador", "emitida", "cancelada", "vencida", "aprobada", "convertida"]
 
+DEFAULT_COMPANY_SETTINGS = {
+    "company_name": "Minier Castillo Auto Import S.R.L",
+    "rnc": "130-41028-3",
+    "address": "Calle Francisco Segura y Sandoval No. 110, Los Mina",
+    "city": "Santo Domingo",
+    "phone": "809-596-1345",
+    "email": "",
+    "website": "",
+    "logo_url": "/logo-minier.png",
+}
+
+COMPANY_SETTINGS_FIELDS = [
+    "company_name",
+    "rnc",
+    "address",
+    "city",
+    "phone",
+    "email",
+    "website",
+    "logo_url",
+]
+
 CUSTOMS_VALUES_SOURCE_YEAR = "2025-2026"
 CUSTOMS_ESTIMATE_MODALITIES = {
     "dealer": Decimal("0.10"),
@@ -178,6 +200,50 @@ def ensure_users_table(conn):
         ALTER TABLE users
         ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP;
     """)
+    conn.commit()
+    cur.close()
+
+
+def ensure_company_settings_table(conn):
+    cur = conn.cursor()
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS company_settings (
+            id SERIAL PRIMARY KEY,
+            company_name TEXT NOT NULL,
+            rnc TEXT,
+            address TEXT,
+            city TEXT,
+            phone TEXT,
+            email TEXT,
+            website TEXT,
+            logo_url TEXT,
+            updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+    """)
+    cur.execute("""
+        INSERT INTO company_settings (
+            id,
+            company_name,
+            rnc,
+            address,
+            city,
+            phone,
+            email,
+            website,
+            logo_url
+        )
+        SELECT 1, %s, %s, %s, %s, %s, %s, %s, %s
+        WHERE NOT EXISTS (SELECT 1 FROM company_settings WHERE id = 1);
+    """, (
+        DEFAULT_COMPANY_SETTINGS["company_name"],
+        DEFAULT_COMPANY_SETTINGS["rnc"],
+        DEFAULT_COMPANY_SETTINGS["address"],
+        DEFAULT_COMPANY_SETTINGS["city"],
+        DEFAULT_COMPANY_SETTINGS["phone"],
+        DEFAULT_COMPANY_SETTINGS["email"],
+        DEFAULT_COMPANY_SETTINGS["website"],
+        DEFAULT_COMPANY_SETTINGS["logo_url"],
+    ))
     conn.commit()
     cur.close()
 
@@ -1283,6 +1349,104 @@ def serialize_quote(row):
         "created_at": row.get("created_at"),
         "updated_at": row.get("updated_at"),
     }
+
+
+def serialize_company_settings(row):
+    return {
+        "id": row.get("id"),
+        "company_name": row.get("company_name"),
+        "rnc": row.get("rnc"),
+        "address": row.get("address"),
+        "city": row.get("city"),
+        "phone": row.get("phone"),
+        "email": row.get("email"),
+        "website": row.get("website"),
+        "logo_url": row.get("logo_url"),
+        "updated_at": row.get("updated_at"),
+    }
+
+
+def fetch_company_settings(conn):
+    import psycopg2.extras
+
+    ensure_company_settings_table(conn)
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("""
+        SELECT id, company_name, rnc, address, city, phone, email, website, logo_url, updated_at
+        FROM company_settings
+        WHERE id = 1
+        LIMIT 1;
+    """)
+    settings = cur.fetchone()
+    cur.close()
+    return settings
+
+
+@app.route("/company-settings", methods=["GET"])
+def get_company_settings():
+    try:
+        conn = get_connection()
+        settings = fetch_company_settings(conn)
+        conn.close()
+
+        return {
+            "status": "OK",
+            "data": serialize_company_settings(settings),
+        }
+    except Exception as e:
+        return {"error": str(e)}, 500
+
+
+@app.route("/company-settings", methods=["PATCH"])
+@require_admin
+def update_company_settings():
+    data = request.get_json(silent=True) or {}
+    provided_fields = [field for field in COMPANY_SETTINGS_FIELDS if field in data]
+
+    if not provided_fields:
+        return {
+            "status": "error",
+            "message": f"Envia al menos uno de estos campos: {', '.join(COMPANY_SETTINGS_FIELDS)}"
+        }, 400
+
+    company_name = data.get("company_name")
+    if "company_name" in data and not str(company_name or "").strip():
+        return {
+            "status": "error",
+            "message": "company_name es obligatorio"
+        }, 400
+
+    try:
+        import psycopg2.extras
+
+        conn = get_connection()
+        ensure_company_settings_table(conn)
+        assignments = [f"{field} = %s" for field in provided_fields]
+        values = [str(data.get(field) or "").strip() for field in provided_fields]
+        values.append(1)
+
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute(f"""
+            UPDATE company_settings
+            SET {", ".join(assignments)},
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = %s
+            RETURNING id, company_name, rnc, address, city, phone, email, website, logo_url, updated_at;
+        """, tuple(values))
+        settings = cur.fetchone()
+        log_audit(conn, "update", "company_settings", settings["id"], {"payload": {field: data.get(field) for field in provided_fields}})
+        conn.commit()
+
+        cur.close()
+        conn.close()
+
+        return {
+            "status": "success",
+            "message": "Configuracion de empresa actualizada correctamente",
+            "data": serialize_company_settings(settings),
+        }
+    except Exception as e:
+        return {"error": str(e)}, 500
 
 
 @app.route("/auth/login", methods=["POST"])

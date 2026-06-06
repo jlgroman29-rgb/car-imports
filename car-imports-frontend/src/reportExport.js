@@ -1,4 +1,4 @@
-import { COMPANY_BRAND, getCompanyLogoUrl } from "./branding";
+import { COMPANY_BRAND, getCompanyLogoUrl, normalizeCompanySettings } from "./branding";
 
 const EXPORT_FORMATS = {
   XLSX: "xlsx",
@@ -728,15 +728,18 @@ const pdfBrandStyles = `
     .brand-report-title h2 { margin: 0 0 8px; color: #1f4ed8; font-size: 22px; }
 `;
 
-const buildPdfBrandHeader = ({ title, meta }) => `
+const buildPdfBrandHeader = ({ title, meta, companySettings = COMPANY_BRAND }) => {
+  const company = normalizeCompanySettings(companySettings);
+
+  return `
   <header class="brand-report-header">
     <div class="brand-report-left">
-      <img class="brand-report-logo" src="${escapeXml(getCompanyLogoUrl())}" alt="${escapeXml(COMPANY_BRAND.name)}" />
+      <img class="brand-report-logo" src="${escapeXml(getCompanyLogoUrl(company))}" alt="${escapeXml(company.name)}" />
       <div>
-        <p class="brand-report-kicker">${escapeXml(COMPANY_BRAND.subtitle)}</p>
-        <h1>${escapeXml(COMPANY_BRAND.name)}</h1>
-        <p>${escapeXml(COMPANY_BRAND.address)} | ${escapeXml(COMPANY_BRAND.city)}</p>
-        <p>Tel: ${escapeXml(COMPANY_BRAND.phone)} | RNC: ${escapeXml(COMPANY_BRAND.rnc)}</p>
+        <p class="brand-report-kicker">${escapeXml(company.subtitle)}</p>
+        <h1>${escapeXml(company.name)}</h1>
+        <p>${escapeXml(company.address)} | ${escapeXml(company.city)}</p>
+        <p>Tel: ${escapeXml(company.phone)} | RNC: ${escapeXml(company.rnc)}</p>
       </div>
     </div>
     <div class="brand-report-title">
@@ -744,8 +747,9 @@ const buildPdfBrandHeader = ({ title, meta }) => `
       <p>${escapeXml(meta)}</p>
     </div>
   </header>`;
+};
 
-const buildPdfHtml = ({ reportRows, estadoLabel }) => {
+const buildPdfHtml = ({ reportRows, estadoLabel, companySettings = COMPANY_BRAND }) => {
   const generatedAt = new Date().toLocaleString("es-DO");
   const vehicleCards = reportRows
     .map((row) => {
@@ -823,7 +827,8 @@ const buildPdfHtml = ({ reportRows, estadoLabel }) => {
 <body>
   ${buildPdfBrandHeader({
     title: "Reporte de costos por vehículo",
-    meta: `Generado: ${generatedAt} | Vehículos incluidos: ${reportRows.length}`
+    meta: `Generado: ${generatedAt} | Vehículos incluidos: ${reportRows.length}`,
+    companySettings
   })}
   ${vehicleCards}
 </body>
@@ -838,7 +843,8 @@ const buildFinancialPdfHtml = ({
   estadoLabel,
   reportTitle = "Dashboard financiero ejecutivo",
   tableTitle = "Ganancia por vehículo",
-  emptyMessage = "No hay datos de ganancias para mostrar."
+  emptyMessage = "No hay datos de ganancias para mostrar.",
+  companySettings = COMPANY_BRAND
 }) => {
   const generatedAt = new Date().toLocaleString("es-DO");
   const rows = normalizeFinancialRows(profitRows, estadoLabel);
@@ -904,7 +910,8 @@ const buildFinancialPdfHtml = ({
 <body>
   ${buildPdfBrandHeader({
     title: reportTitle,
-    meta: `Generado: ${generatedAt} | ${getFinancialFilterLabel(filters)}`
+    meta: `Generado: ${generatedAt} | ${getFinancialFilterLabel(filters)}`,
+    companySettings
   })}
   <section class="metrics">${metricCards}</section>
   <h2>${escapeXml(tableTitle)}</h2>
@@ -939,7 +946,8 @@ const buildInventoryIntelligencePdfHtml = ({
   profitableRows,
   lossRows,
   brandRows,
-  estadoLabel
+  estadoLabel,
+  companySettings = COMPANY_BRAND
 }) => {
   const generatedAt = new Date().toLocaleString("es-DO");
   const ageRows = normalizeInventoryIntelligenceRows(inventoryAgeRows, estadoLabel);
@@ -1023,7 +1031,7 @@ const buildInventoryIntelligencePdfHtml = ({
   </style>
 </head>
 <body>
-  ${buildPdfBrandHeader({ title: "Inteligencia de Inventario", meta: `Generado: ${generatedAt}` })}
+  ${buildPdfBrandHeader({ title: "Inteligencia de Inventario", meta: `Generado: ${generatedAt}`, companySettings })}
   <section class="metrics">${metricCards}</section>
   <section class="section"><h2>Vehiculos con mas tiempo en inventario</h2><table><thead><tr><th>VIN</th><th>Marca</th><th>Modelo</th><th>Ano</th><th>Estado</th><th>Dias</th></tr></thead><tbody>${ageTableRows}</tbody></table></section>
   <section class="section"><h2>Top vehiculos mas rentables</h2><table><thead><tr><th>VIN</th><th>Marca</th><th>Modelo</th><th>Ganancia real</th><th>Margen</th></tr></thead><tbody>${profitableTableRows}</tbody></table></section>
@@ -1033,7 +1041,7 @@ const buildInventoryIntelligencePdfHtml = ({
 </html>`;
 };
 
-const exportReportToPdf = ({ reportRows, estadoLabel, printWindow }) => {
+const exportReportToPdf = ({ reportRows, estadoLabel, printWindow, companySettings = COMPANY_BRAND }) => {
   if (!reportRows.length) {
     throw new Error("No hay datos para exportar.");
   }
@@ -1048,7 +1056,7 @@ const exportReportToPdf = ({ reportRows, estadoLabel, printWindow }) => {
   };
 
   printWindow.document.open();
-  printWindow.document.write(buildPdfHtml({ reportRows, estadoLabel }));
+  printWindow.document.write(buildPdfHtml({ reportRows, estadoLabel, companySettings }));
   printWindow.document.close();
 };
 
@@ -1061,7 +1069,8 @@ const exportFinancialReportToPdf = ({
   printWindow,
   reportTitle,
   tableTitle,
-  emptyMessage
+  emptyMessage,
+  companySettings = COMPANY_BRAND
 }) => {
   if (!printWindow) {
     throw new Error("No se pudo abrir la ventana de impresión. Habilita los pop-ups e inténtalo de nuevo.");
@@ -1082,7 +1091,8 @@ const exportFinancialReportToPdf = ({
       estadoLabel,
       reportTitle,
       tableTitle,
-      emptyMessage
+      emptyMessage,
+      companySettings
     })
   );
   printWindow.document.close();
@@ -1095,7 +1105,8 @@ const exportInventoryIntelligenceToPdf = ({
   lossRows,
   brandRows,
   estadoLabel,
-  printWindow
+  printWindow,
+  companySettings = COMPANY_BRAND
 }) => {
   if (!printWindow) {
     throw new Error("No se pudo abrir la ventana de impresion. Habilita los pop-ups e intentalo de nuevo.");
@@ -1108,12 +1119,12 @@ const exportInventoryIntelligenceToPdf = ({
 
   printWindow.document.open();
   printWindow.document.write(
-    buildInventoryIntelligencePdfHtml({ summary, inventoryAgeRows, profitableRows, lossRows, brandRows, estadoLabel })
+    buildInventoryIntelligencePdfHtml({ summary, inventoryAgeRows, profitableRows, lossRows, brandRows, estadoLabel, companySettings })
   );
   printWindow.document.close();
 };
 
-const buildCustomsEstimatePdfHtml = ({ estimate, generatedAt }) => {
+const buildCustomsEstimatePdfHtml = ({ estimate, generatedAt, companySettings = COMPANY_BRAND }) => {
   const customsValue = estimate?.customs_value || {};
   const inputs = estimate?.inputs || {};
   const effectiveFobUsd = inputs.fob_usd || customsValue.valor_aduanas || 0;
@@ -1196,7 +1207,7 @@ const buildCustomsEstimatePdfHtml = ({ estimate, generatedAt }) => {
   </style>
 </head>
 <body>
-  ${buildPdfBrandHeader({ title: "Estimación Aduanal", meta: `Generado: ${generatedAt}` })}
+  ${buildPdfBrandHeader({ title: "Estimación Aduanal", meta: `Generado: ${generatedAt}`, companySettings })}
   <section class="summary-grid">
     <div class="summary-card"><span>Marca</span><strong>${escapeXml(customsValue.marca || "")}</strong></div>
     <div class="summary-card"><span>Modelo</span><strong>${escapeXml(customsValue.modelo || "")}</strong></div>
@@ -1227,7 +1238,7 @@ const buildCustomsEstimatePdfHtml = ({ estimate, generatedAt }) => {
 </html>`;
 };
 
-const exportCustomsEstimateToPdf = ({ estimate, printWindow }) => {
+const exportCustomsEstimateToPdf = ({ estimate, printWindow, companySettings = COMPANY_BRAND }) => {
   if (!estimate) {
     throw new Error("No hay estimacion para exportar.");
   }
@@ -1243,18 +1254,18 @@ const exportCustomsEstimateToPdf = ({ estimate, printWindow }) => {
   };
 
   printWindow.document.open();
-  printWindow.document.write(buildCustomsEstimatePdfHtml({ estimate, generatedAt }));
+  printWindow.document.write(buildCustomsEstimatePdfHtml({ estimate, generatedAt, companySettings }));
   printWindow.document.close();
 };
 
-export const exportCostReport = ({ format = EXPORT_FORMATS.XLSX, reportRows, estadoLabel, printWindow = null }) => {
+export const exportCostReport = ({ format = EXPORT_FORMATS.XLSX, reportRows, estadoLabel, printWindow = null, companySettings = COMPANY_BRAND }) => {
   if (format === EXPORT_FORMATS.XLSX) {
     exportReportToXlsx({ reportRows, estadoLabel });
     return;
   }
 
   if (format === EXPORT_FORMATS.PDF) {
-    exportReportToPdf({ reportRows, estadoLabel, printWindow });
+    exportReportToPdf({ reportRows, estadoLabel, printWindow, companySettings });
     return;
   }
 
@@ -1271,7 +1282,8 @@ export const exportFinancialReport = ({
   printWindow = null,
   reportTitle,
   tableTitle,
-  emptyMessage
+  emptyMessage,
+  companySettings = COMPANY_BRAND
 }) => {
   if (format === EXPORT_FORMATS.XLSX) {
     exportFinancialReportToXlsx({ profitRows, profitTotals, margenPromedio, filters, estadoLabel });
@@ -1288,7 +1300,8 @@ export const exportFinancialReport = ({
       printWindow,
       reportTitle,
       tableTitle,
-      emptyMessage
+      emptyMessage,
+      companySettings
     });
     return;
   }
@@ -1304,7 +1317,8 @@ export const exportInventoryIntelligenceReport = ({
   lossRows,
   brandRows,
   estadoLabel,
-  printWindow = null
+  printWindow = null,
+  companySettings = COMPANY_BRAND
 }) => {
   if (format === EXPORT_FORMATS.XLSX) {
     exportInventoryIntelligenceToXlsx({ summary, inventoryAgeRows, profitableRows, lossRows, brandRows, estadoLabel });
@@ -1312,16 +1326,16 @@ export const exportInventoryIntelligenceReport = ({
   }
 
   if (format === EXPORT_FORMATS.PDF) {
-    exportInventoryIntelligenceToPdf({ summary, inventoryAgeRows, profitableRows, lossRows, brandRows, estadoLabel, printWindow });
+    exportInventoryIntelligenceToPdf({ summary, inventoryAgeRows, profitableRows, lossRows, brandRows, estadoLabel, printWindow, companySettings });
     return;
   }
 
   throw new Error("Formato de exportacion no soportado.");
 };
 
-export const exportCustomsEstimateReport = ({ format = EXPORT_FORMATS.PDF, estimate, printWindow = null }) => {
+export const exportCustomsEstimateReport = ({ format = EXPORT_FORMATS.PDF, estimate, printWindow = null, companySettings = COMPANY_BRAND }) => {
   if (format === EXPORT_FORMATS.PDF) {
-    exportCustomsEstimateToPdf({ estimate, printWindow });
+    exportCustomsEstimateToPdf({ estimate, printWindow, companySettings });
     return;
   }
 
