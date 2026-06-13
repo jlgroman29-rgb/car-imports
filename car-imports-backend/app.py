@@ -1577,6 +1577,39 @@ def list_users():
 @app.route("/audit-logs", methods=["GET"])
 @require_admin
 def list_audit_logs():
+    start_date, end_date, date_error = get_date_filters()
+    if date_error:
+        return date_error
+
+    user_id = request.args.get("user_id", "").strip()
+    action = request.args.get("action", "").strip()
+    entity_type = request.args.get("entity_type", "").strip()
+    entity_id = request.args.get("entity_id", "").strip()
+    query = request.args.get("q", "").strip()
+
+    if user_id:
+        try:
+            user_id = int(user_id)
+        except ValueError:
+            return {
+                "status": "error",
+                "message": "user_id debe ser numerico"
+            }, 400
+        if user_id < 1:
+            return {
+                "status": "error",
+                "message": "user_id debe ser mayor que cero"
+            }, 400
+
+    limit = request.args.get("limit", "500")
+    try:
+        limit = min(max(int(limit), 1), 5000)
+    except ValueError:
+        return {
+            "status": "error",
+            "message": "limit debe ser numerico"
+        }, 400
+
     try:
         import psycopg2.extras
 
@@ -1584,16 +1617,79 @@ def list_audit_logs():
         ensure_users_table(conn)
         ensure_audit_logs_table(conn)
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-        cur.execute("""
-            SELECT id, user_id, action, entity_type, entity_id, details, created_at
+
+        filters = []
+        params = []
+
+        if start_date:
+            filters.append("audit_logs.created_at::date >= %s")
+            params.append(start_date)
+
+        if end_date:
+            filters.append("audit_logs.created_at::date <= %s")
+            params.append(end_date)
+
+        if user_id:
+            filters.append("audit_logs.user_id = %s")
+            params.append(user_id)
+
+        if action:
+            filters.append("audit_logs.action = %s")
+            params.append(action)
+
+        if entity_type:
+            filters.append("audit_logs.entity_type = %s")
+            params.append(entity_type)
+
+        if entity_id:
+            filters.append("audit_logs.entity_id = %s")
+            params.append(entity_id)
+
+        if query:
+            filters.append("""
+                (
+                    audit_logs.details::text ILIKE %s
+                    OR audit_logs.action ILIKE %s
+                    OR audit_logs.entity_type ILIKE %s
+                    OR audit_logs.entity_id ILIKE %s
+                    OR users.name ILIKE %s
+                    OR users.email ILIKE %s
+                )
+            """)
+            query_pattern = f"%{query}%"
+            params.extend([query_pattern] * 6)
+
+        where_clause = f"WHERE {' AND '.join(filters)}" if filters else ""
+        cur.execute(f"""
+            SELECT
+                audit_logs.id,
+                audit_logs.user_id,
+                users.name AS user_name,
+                users.email AS user_email,
+                audit_logs.action,
+                audit_logs.entity_type,
+                audit_logs.entity_id,
+                audit_logs.details,
+                audit_logs.created_at,
+                COUNT(*) OVER() AS total_count
             FROM audit_logs
-            ORDER BY created_at DESC, id DESC
-            LIMIT 500;
-        """)
+            LEFT JOIN users ON users.id = audit_logs.user_id
+            {where_clause}
+            ORDER BY audit_logs.created_at DESC, audit_logs.id DESC
+            LIMIT %s;
+        """, (*params, limit))
         rows = cur.fetchall()
+        total_count = rows[0]["total_count"] if rows else 0
+        for row in rows:
+            row.pop("total_count", None)
+
         cur.close()
         conn.close()
-        return {"status": "OK", "data": rows}
+        return {
+            "status": "OK",
+            "count": total_count,
+            "data": rows
+        }
     except Exception as e:
         return {"error": str(e)}, 500
 

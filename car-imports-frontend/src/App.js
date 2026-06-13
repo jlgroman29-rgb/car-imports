@@ -76,6 +76,15 @@ const EMPTY_CUSTOMS_OPTIONS = {
   anios: [],
   especificaciones: []
 };
+const EMPTY_AUDIT_FILTERS = {
+  start_date: "",
+  end_date: "",
+  user_id: "",
+  action: "",
+  entity_type: "",
+  entity_id: "",
+  q: ""
+};
 const EMPTY_CUSTOMS_ESTIMATE_FORM = {
   valor_aduanas_usd: "",
   tasa_cambio: "",
@@ -230,6 +239,13 @@ function App() {
   const [auditLogs, setAuditLogs] = useState([]);
   const [auditLogsLoading, setAuditLogsLoading] = useState(false);
   const [auditLogsMessage, setAuditLogsMessage] = useState({ type: "", text: "" });
+  const [auditLogsCount, setAuditLogsCount] = useState(0);
+  const [auditFilters, setAuditFilters] = useState(EMPTY_AUDIT_FILTERS);
+  const [appliedAuditFilters, setAppliedAuditFilters] = useState(EMPTY_AUDIT_FILTERS);
+  const [auditFilterOptions, setAuditFilterOptions] = useState({
+    actions: [],
+    entityTypes: []
+  });
   const [companySettings, setCompanySettings] = useState(() => normalizeCompanySettings(COMPANY_BRAND));
   const [companySettingsForm, setCompanySettingsForm] = useState(() => ({
     ...EMPTY_COMPANY_SETTINGS_FORM,
@@ -912,12 +928,21 @@ function App() {
     }
   };
 
-  const loadAuditLogs = async () => {
+  const loadAuditLogs = async (filters = appliedAuditFilters) => {
     setAuditLogsLoading(true);
     setAuditLogsMessage({ type: "", text: "" });
 
+    const params = new URLSearchParams();
+    Object.entries(filters).forEach(([key, value]) => {
+      if (String(value || "").trim()) {
+        params.append(key, String(value).trim());
+      }
+    });
+    const queryString = params.toString();
+    const url = `${API_BASE_URL}/audit-logs${queryString ? `?${queryString}` : ""}`;
+
     try {
-      const response = await fetch(`${API_BASE_URL}/audit-logs`, {
+      const response = await fetch(url, {
         headers: getAuthHeaders()
       });
       const data = await response.json();
@@ -930,6 +955,7 @@ function App() {
 
       if (response.status === 403) {
         setAuditLogs([]);
+        setAuditLogsCount(0);
         setAuditLogsMessage({ type: "error", text: "No tienes permisos para ver auditoría" });
         return;
       }
@@ -939,12 +965,43 @@ function App() {
       }
 
       setAuditLogs(data.data || []);
+      setAuditLogsCount(data.count ?? (data.data || []).length);
+      setAppliedAuditFilters({ ...filters });
+      setAuditFilterOptions((currentOptions) => ({
+        actions: [...new Set([
+          ...currentOptions.actions,
+          ...(data.data || []).map((log) => log.action).filter(Boolean)
+        ])].sort((a, b) => a.localeCompare(b)),
+        entityTypes: [...new Set([
+          ...currentOptions.entityTypes,
+          ...(data.data || []).map((log) => log.entity_type).filter(Boolean)
+        ])].sort((a, b) => a.localeCompare(b))
+      }));
     } catch (error) {
       console.error("Error cargando auditoría:", error);
       setAuditLogsMessage({ type: "error", text: error.message || "No se pudieron cargar los logs de auditoría" });
     } finally {
       setAuditLogsLoading(false);
     }
+  };
+
+  const handleAuditFilterChange = (event) => {
+    const { name, value } = event.target;
+    setAuditFilters((currentFilters) => ({
+      ...currentFilters,
+      [name]: value
+    }));
+  };
+
+  const handleApplyAuditFilters = (event) => {
+    event.preventDefault();
+    loadAuditLogs(auditFilters);
+  };
+
+  const handleClearAuditFilters = () => {
+    const cleanFilters = { ...EMPTY_AUDIT_FILTERS };
+    setAuditFilters(cleanFilters);
+    loadAuditLogs(cleanFilters);
   };
 
   const handleUserFormChange = (event) => {
@@ -4893,11 +4950,69 @@ const formatMoney = (value, currency = "USD") => {
 
       {activeTab === "auditoria" && (
         <section className="panel">
-          <h2>Auditoría</h2>
-          <p className="panel-subtitle">Registro de acciones administrativas del sistema.</p>
-          <button className="btn btn-secondary" type="button" onClick={loadAuditLogs} disabled={auditLogsLoading}>
-            {auditLogsLoading ? <LoadingSpinner label="Cargando..." /> : "Actualizar auditoría"}
-          </button>
+          <div className="panel-title-row">
+            <div>
+              <h2>Auditoría</h2>
+              <p className="panel-subtitle">Registro de acciones administrativas del sistema.</p>
+            </div>
+            <button className="btn btn-secondary" type="button" onClick={() => loadAuditLogs()} disabled={auditLogsLoading}>
+              {auditLogsLoading ? <LoadingSpinner label="Cargando..." /> : "Recargar"}
+            </button>
+          </div>
+
+          <form className="financial-filters" onSubmit={handleApplyAuditFilters}>
+            <label className="filter-field">
+              <span>Desde</span>
+              <input className="input-control" type="date" name="start_date" value={auditFilters.start_date} onChange={handleAuditFilterChange} />
+            </label>
+            <label className="filter-field">
+              <span>Hasta</span>
+              <input className="input-control" type="date" name="end_date" value={auditFilters.end_date} onChange={handleAuditFilterChange} />
+            </label>
+            <label className="filter-field">
+              <span>Usuario</span>
+              <select className="input-control" name="user_id" value={auditFilters.user_id} onChange={handleAuditFilterChange}>
+                <option value="">Todos</option>
+                {users.map((user) => (
+                  <option key={user.id} value={user.id}>{user.name || user.email || `Usuario ${user.id}`}</option>
+                ))}
+              </select>
+            </label>
+            <label className="filter-field">
+              <span>Acción</span>
+              <select className="input-control" name="action" value={auditFilters.action} onChange={handleAuditFilterChange}>
+                <option value="">Todas</option>
+                {auditFilterOptions.actions.map((action) => (
+                  <option key={action} value={action}>{action}</option>
+                ))}
+              </select>
+            </label>
+            <label className="filter-field">
+              <span>Entidad</span>
+              <select className="input-control" name="entity_type" value={auditFilters.entity_type} onChange={handleAuditFilterChange}>
+                <option value="">Todas</option>
+                {auditFilterOptions.entityTypes.map((entityType) => (
+                  <option key={entityType} value={entityType}>{entityType}</option>
+                ))}
+              </select>
+            </label>
+            <label className="filter-field">
+              <span>ID entidad</span>
+              <input className="input-control" name="entity_id" value={auditFilters.entity_id} onChange={handleAuditFilterChange} />
+            </label>
+            <label className="filter-field">
+              <span>Texto libre</span>
+              <input className="input-control" name="q" value={auditFilters.q} onChange={handleAuditFilterChange} placeholder="Detalles, usuario o campos de texto" />
+            </label>
+            <div className="financial-filter-actions">
+              <button className="btn btn-primary" type="submit" disabled={auditLogsLoading}>Aplicar filtros</button>
+              <button className="btn btn-secondary" type="button" onClick={handleClearAuditFilters} disabled={auditLogsLoading}>Limpiar filtros</button>
+            </div>
+          </form>
+
+          <p className="audit-results-count" aria-live="polite">
+            Total de registros encontrados: <strong>{auditLogsCount}</strong>
+          </p>
           {auditLogsMessage.text && (
             <div className={`user-feedback user-feedback-${auditLogsMessage.type}`}>{auditLogsMessage.text}</div>
           )}
