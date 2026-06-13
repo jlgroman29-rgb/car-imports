@@ -104,6 +104,28 @@ VALID_TIPOS_COSTO = [
 
 VALID_QUOTE_STATUSES = ["borrador", "emitida", "cancelada", "vencida", "aprobada", "convertida"]
 
+DEFAULT_COMPANY_SETTINGS = {
+    "company_name": "Minier Castillo Auto Import S.R.L",
+    "rnc": "130-41028-3",
+    "address": "Calle Francisco Segura y Sandoval No. 110, Los Mina",
+    "city": "Santo Domingo",
+    "phone": "809-596-1345",
+    "email": "",
+    "website": "",
+    "logo_url": "/logo-minier.png",
+}
+
+COMPANY_SETTINGS_FIELDS = [
+    "company_name",
+    "rnc",
+    "address",
+    "city",
+    "phone",
+    "email",
+    "website",
+    "logo_url",
+]
+
 CUSTOMS_VALUES_SOURCE_YEAR = "2025-2026"
 CUSTOMS_ESTIMATE_MODALITIES = {
     "dealer": Decimal("0.10"),
@@ -178,6 +200,50 @@ def ensure_users_table(conn):
         ALTER TABLE users
         ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP;
     """)
+    conn.commit()
+    cur.close()
+
+
+def ensure_company_settings_table(conn):
+    cur = conn.cursor()
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS company_settings (
+            id SERIAL PRIMARY KEY,
+            company_name TEXT NOT NULL,
+            rnc TEXT,
+            address TEXT,
+            city TEXT,
+            phone TEXT,
+            email TEXT,
+            website TEXT,
+            logo_url TEXT,
+            updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+    """)
+    cur.execute("""
+        INSERT INTO company_settings (
+            id,
+            company_name,
+            rnc,
+            address,
+            city,
+            phone,
+            email,
+            website,
+            logo_url
+        )
+        SELECT 1, %s, %s, %s, %s, %s, %s, %s, %s
+        WHERE NOT EXISTS (SELECT 1 FROM company_settings WHERE id = 1);
+    """, (
+        DEFAULT_COMPANY_SETTINGS["company_name"],
+        DEFAULT_COMPANY_SETTINGS["rnc"],
+        DEFAULT_COMPANY_SETTINGS["address"],
+        DEFAULT_COMPANY_SETTINGS["city"],
+        DEFAULT_COMPANY_SETTINGS["phone"],
+        DEFAULT_COMPANY_SETTINGS["email"],
+        DEFAULT_COMPANY_SETTINGS["website"],
+        DEFAULT_COMPANY_SETTINGS["logo_url"],
+    ))
     conn.commit()
     cur.close()
 
@@ -1285,6 +1351,104 @@ def serialize_quote(row):
     }
 
 
+def serialize_company_settings(row):
+    return {
+        "id": row.get("id"),
+        "company_name": row.get("company_name"),
+        "rnc": row.get("rnc"),
+        "address": row.get("address"),
+        "city": row.get("city"),
+        "phone": row.get("phone"),
+        "email": row.get("email"),
+        "website": row.get("website"),
+        "logo_url": row.get("logo_url"),
+        "updated_at": row.get("updated_at"),
+    }
+
+
+def fetch_company_settings(conn):
+    import psycopg2.extras
+
+    ensure_company_settings_table(conn)
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("""
+        SELECT id, company_name, rnc, address, city, phone, email, website, logo_url, updated_at
+        FROM company_settings
+        WHERE id = 1
+        LIMIT 1;
+    """)
+    settings = cur.fetchone()
+    cur.close()
+    return settings
+
+
+@app.route("/company-settings", methods=["GET"])
+def get_company_settings():
+    try:
+        conn = get_connection()
+        settings = fetch_company_settings(conn)
+        conn.close()
+
+        return {
+            "status": "OK",
+            "data": serialize_company_settings(settings),
+        }
+    except Exception as e:
+        return {"error": str(e)}, 500
+
+
+@app.route("/company-settings", methods=["PATCH"])
+@require_admin
+def update_company_settings():
+    data = request.get_json(silent=True) or {}
+    provided_fields = [field for field in COMPANY_SETTINGS_FIELDS if field in data]
+
+    if not provided_fields:
+        return {
+            "status": "error",
+            "message": f"Envia al menos uno de estos campos: {', '.join(COMPANY_SETTINGS_FIELDS)}"
+        }, 400
+
+    company_name = data.get("company_name")
+    if "company_name" in data and not str(company_name or "").strip():
+        return {
+            "status": "error",
+            "message": "company_name es obligatorio"
+        }, 400
+
+    try:
+        import psycopg2.extras
+
+        conn = get_connection()
+        ensure_company_settings_table(conn)
+        assignments = [f"{field} = %s" for field in provided_fields]
+        values = [str(data.get(field) or "").strip() for field in provided_fields]
+        values.append(1)
+
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute(f"""
+            UPDATE company_settings
+            SET {", ".join(assignments)},
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = %s
+            RETURNING id, company_name, rnc, address, city, phone, email, website, logo_url, updated_at;
+        """, tuple(values))
+        settings = cur.fetchone()
+        log_audit(conn, "update", "company_settings", settings["id"], {"payload": {field: data.get(field) for field in provided_fields}})
+        conn.commit()
+
+        cur.close()
+        conn.close()
+
+        return {
+            "status": "success",
+            "message": "Configuracion de empresa actualizada correctamente",
+            "data": serialize_company_settings(settings),
+        }
+    except Exception as e:
+        return {"error": str(e)}, 500
+
+
 @app.route("/auth/login", methods=["POST"])
 def login():
     data = request.get_json(silent=True) or {}
@@ -1413,6 +1577,39 @@ def list_users():
 @app.route("/audit-logs", methods=["GET"])
 @require_admin
 def list_audit_logs():
+    start_date, end_date, date_error = get_date_filters()
+    if date_error:
+        return date_error
+
+    user_id = request.args.get("user_id", "").strip()
+    action = request.args.get("action", "").strip()
+    entity_type = request.args.get("entity_type", "").strip()
+    entity_id = request.args.get("entity_id", "").strip()
+    query = request.args.get("q", "").strip()
+
+    if user_id:
+        try:
+            user_id = int(user_id)
+        except ValueError:
+            return {
+                "status": "error",
+                "message": "user_id debe ser numerico"
+            }, 400
+        if user_id < 1:
+            return {
+                "status": "error",
+                "message": "user_id debe ser mayor que cero"
+            }, 400
+
+    limit = request.args.get("limit", "500")
+    try:
+        limit = min(max(int(limit), 1), 5000)
+    except ValueError:
+        return {
+            "status": "error",
+            "message": "limit debe ser numerico"
+        }, 400
+
     try:
         import psycopg2.extras
 
@@ -1420,16 +1617,79 @@ def list_audit_logs():
         ensure_users_table(conn)
         ensure_audit_logs_table(conn)
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-        cur.execute("""
-            SELECT id, user_id, action, entity_type, entity_id, details, created_at
+
+        filters = []
+        params = []
+
+        if start_date:
+            filters.append("audit_logs.created_at::date >= %s")
+            params.append(start_date)
+
+        if end_date:
+            filters.append("audit_logs.created_at::date <= %s")
+            params.append(end_date)
+
+        if user_id:
+            filters.append("audit_logs.user_id = %s")
+            params.append(user_id)
+
+        if action:
+            filters.append("audit_logs.action = %s")
+            params.append(action)
+
+        if entity_type:
+            filters.append("audit_logs.entity_type = %s")
+            params.append(entity_type)
+
+        if entity_id:
+            filters.append("audit_logs.entity_id = %s")
+            params.append(entity_id)
+
+        if query:
+            filters.append("""
+                (
+                    audit_logs.details::text ILIKE %s
+                    OR audit_logs.action ILIKE %s
+                    OR audit_logs.entity_type ILIKE %s
+                    OR audit_logs.entity_id ILIKE %s
+                    OR users.name ILIKE %s
+                    OR users.email ILIKE %s
+                )
+            """)
+            query_pattern = f"%{query}%"
+            params.extend([query_pattern] * 6)
+
+        where_clause = f"WHERE {' AND '.join(filters)}" if filters else ""
+        cur.execute(f"""
+            SELECT
+                audit_logs.id,
+                audit_logs.user_id,
+                users.name AS user_name,
+                users.email AS user_email,
+                audit_logs.action,
+                audit_logs.entity_type,
+                audit_logs.entity_id,
+                audit_logs.details,
+                audit_logs.created_at,
+                COUNT(*) OVER() AS total_count
             FROM audit_logs
-            ORDER BY created_at DESC, id DESC
-            LIMIT 500;
-        """)
+            LEFT JOIN users ON users.id = audit_logs.user_id
+            {where_clause}
+            ORDER BY audit_logs.created_at DESC, audit_logs.id DESC
+            LIMIT %s;
+        """, (*params, limit))
         rows = cur.fetchall()
+        total_count = rows[0]["total_count"] if rows else 0
+        for row in rows:
+            row.pop("total_count", None)
+
         cur.close()
         conn.close()
-        return {"status": "OK", "data": rows}
+        return {
+            "status": "OK",
+            "count": total_count,
+            "data": rows
+        }
     except Exception as e:
         return {"error": str(e)}, 500
 

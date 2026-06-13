@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, Cell, ResponsiveContainer, PieChart, Pie, CartesianGrid } from "recharts";
 import "./App.css";
-import { COMPANY_BRAND } from "./branding";
+import { COMPANY_BRAND, normalizeCompanySettings } from "./branding";
 import { exportCostReport, exportCustomsEstimateReport, exportFinancialReport, exportInventoryIntelligenceReport, EXPORT_FORMATS } from "./reportExport";
 import { buildQuoteHtml } from "./quoteTemplate";
 import { buildReceiptHtml } from "./receiptTemplate";
@@ -9,6 +9,16 @@ import { buildReceiptHtml } from "./receiptTemplate";
 const API_BASE_URL = "http://127.0.0.1:5000";
 const AUTH_TOKEN_KEY = "car_imports_access_token";
 const USER_ROLES = ["user", "admin"];
+const EMPTY_COMPANY_SETTINGS_FORM = {
+  company_name: "",
+  rnc: "",
+  address: "",
+  city: "",
+  phone: "",
+  email: "",
+  website: "",
+  logo_url: ""
+};
 const TODAY_DATE = new Date().toISOString().split("T")[0];
 const MAX_VEHICLE_IMAGE_BYTES = 5 * 1024 * 1024;
 const ALLOWED_VEHICLE_IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp"];
@@ -65,6 +75,15 @@ const EMPTY_CUSTOMS_OPTIONS = {
   modelos: [],
   anios: [],
   especificaciones: []
+};
+const EMPTY_AUDIT_FILTERS = {
+  start_date: "",
+  end_date: "",
+  user_id: "",
+  action: "",
+  entity_type: "",
+  entity_id: "",
+  q: ""
 };
 const EMPTY_CUSTOMS_ESTIMATE_FORM = {
   valor_aduanas_usd: "",
@@ -220,6 +239,21 @@ function App() {
   const [auditLogs, setAuditLogs] = useState([]);
   const [auditLogsLoading, setAuditLogsLoading] = useState(false);
   const [auditLogsMessage, setAuditLogsMessage] = useState({ type: "", text: "" });
+  const [auditLogsCount, setAuditLogsCount] = useState(0);
+  const [auditFilters, setAuditFilters] = useState(EMPTY_AUDIT_FILTERS);
+  const [appliedAuditFilters, setAppliedAuditFilters] = useState(EMPTY_AUDIT_FILTERS);
+  const [auditFilterOptions, setAuditFilterOptions] = useState({
+    actions: [],
+    entityTypes: []
+  });
+  const [companySettings, setCompanySettings] = useState(() => normalizeCompanySettings(COMPANY_BRAND));
+  const [companySettingsForm, setCompanySettingsForm] = useState(() => ({
+    ...EMPTY_COMPANY_SETTINGS_FORM,
+    ...normalizeCompanySettings(COMPANY_BRAND)
+  }));
+  const [companySettingsLoading, setCompanySettingsLoading] = useState(false);
+  const [companySettingsSaving, setCompanySettingsSaving] = useState(false);
+  const [companySettingsMessage, setCompanySettingsMessage] = useState({ type: "", text: "" });
   const [editingUserId, setEditingUserId] = useState(null);
   const [userForm, setUserForm] = useState({
     name: "",
@@ -513,6 +547,91 @@ function App() {
     return false;
   };
 
+  const applyCompanySettings = (settings) => {
+    const normalized = normalizeCompanySettings(settings);
+    setCompanySettings(normalized);
+    setCompanySettingsForm({
+      company_name: normalized.company_name,
+      rnc: normalized.rnc,
+      address: normalized.address,
+      city: normalized.city,
+      phone: normalized.phone,
+      email: normalized.email,
+      website: normalized.website,
+      logo_url: normalized.logo_url
+    });
+    return normalized;
+  };
+
+  const loadCompanySettings = async ({ silent = false } = {}) => {
+    if (!silent) {
+      setCompanySettingsLoading(true);
+      setCompanySettingsMessage({ type: "", text: "" });
+    }
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/company-settings`);
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(parseApiError(data, "No se pudo cargar la configuracion de empresa"));
+      }
+
+      applyCompanySettings(data.data || {});
+    } catch (error) {
+      console.error("Error cargando configuracion de empresa:", error);
+      if (!silent) {
+        setCompanySettingsMessage({
+          type: "error",
+          text: error.message || "No se pudo cargar la configuracion de empresa. Se usara el branding local."
+        });
+      }
+    } finally {
+      if (!silent) {
+        setCompanySettingsLoading(false);
+      }
+    }
+  };
+
+  const handleCompanySettingsChange = (event) => {
+    const { name, value } = event.target;
+    setCompanySettingsForm((currentForm) => ({ ...currentForm, [name]: value }));
+  };
+
+  const handleCompanySettingsSubmit = async (event) => {
+    event.preventDefault();
+    setCompanySettingsSaving(true);
+    setCompanySettingsMessage({ type: "", text: "" });
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/company-settings`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          ...getAuthHeaders()
+        },
+        body: JSON.stringify(companySettingsForm)
+      });
+      const data = await response.json();
+
+      if (handleAuthApiStatus(response, setCompanySettingsMessage)) {
+        return;
+      }
+
+      if (!response.ok) {
+        throw new Error(parseApiError(data, "No se pudo guardar la configuracion de empresa"));
+      }
+
+      applyCompanySettings(data.data || companySettingsForm);
+      setCompanySettingsMessage({ type: "success", text: "Configuracion de empresa actualizada correctamente." });
+    } catch (error) {
+      console.error("Error guardando configuracion de empresa:", error);
+      setCompanySettingsMessage({ type: "error", text: error.message || "No se pudo guardar la configuracion de empresa" });
+    } finally {
+      setCompanySettingsSaving(false);
+    }
+  };
+
   const buildCustomsOptionsUrl = (selection) => {
     const params = new URLSearchParams();
     if (selection.marca) params.append("marca", selection.marca);
@@ -762,7 +881,8 @@ function App() {
       exportCustomsEstimateReport({
         format: EXPORT_FORMATS.PDF,
         estimate: customsEstimateResult,
-        printWindow
+        printWindow,
+        companySettings
       });
     } catch (error) {
       if (printWindow && !printWindow.closed) {
@@ -808,12 +928,21 @@ function App() {
     }
   };
 
-  const loadAuditLogs = async () => {
+  const loadAuditLogs = async (filters = appliedAuditFilters) => {
     setAuditLogsLoading(true);
     setAuditLogsMessage({ type: "", text: "" });
 
+    const params = new URLSearchParams();
+    Object.entries(filters).forEach(([key, value]) => {
+      if (String(value || "").trim()) {
+        params.append(key, String(value).trim());
+      }
+    });
+    const queryString = params.toString();
+    const url = `${API_BASE_URL}/audit-logs${queryString ? `?${queryString}` : ""}`;
+
     try {
-      const response = await fetch(`${API_BASE_URL}/audit-logs`, {
+      const response = await fetch(url, {
         headers: getAuthHeaders()
       });
       const data = await response.json();
@@ -826,6 +955,7 @@ function App() {
 
       if (response.status === 403) {
         setAuditLogs([]);
+        setAuditLogsCount(0);
         setAuditLogsMessage({ type: "error", text: "No tienes permisos para ver auditoría" });
         return;
       }
@@ -835,12 +965,43 @@ function App() {
       }
 
       setAuditLogs(data.data || []);
+      setAuditLogsCount(data.count ?? (data.data || []).length);
+      setAppliedAuditFilters({ ...filters });
+      setAuditFilterOptions((currentOptions) => ({
+        actions: [...new Set([
+          ...currentOptions.actions,
+          ...(data.data || []).map((log) => log.action).filter(Boolean)
+        ])].sort((a, b) => a.localeCompare(b)),
+        entityTypes: [...new Set([
+          ...currentOptions.entityTypes,
+          ...(data.data || []).map((log) => log.entity_type).filter(Boolean)
+        ])].sort((a, b) => a.localeCompare(b))
+      }));
     } catch (error) {
       console.error("Error cargando auditoría:", error);
       setAuditLogsMessage({ type: "error", text: error.message || "No se pudieron cargar los logs de auditoría" });
     } finally {
       setAuditLogsLoading(false);
     }
+  };
+
+  const handleAuditFilterChange = (event) => {
+    const { name, value } = event.target;
+    setAuditFilters((currentFilters) => ({
+      ...currentFilters,
+      [name]: value
+    }));
+  };
+
+  const handleApplyAuditFilters = (event) => {
+    event.preventDefault();
+    loadAuditLogs(auditFilters);
+  };
+
+  const handleClearAuditFilters = () => {
+    const cleanFilters = { ...EMPTY_AUDIT_FILTERS };
+    setAuditFilters(cleanFilters);
+    loadAuditLogs(cleanFilters);
   };
 
   const handleUserFormChange = (event) => {
@@ -1719,13 +1880,18 @@ function App() {
 
     const vehicle = getVehicleById(quote.vehicle_id);
     quoteWindow.document.open();
-    quoteWindow.document.write(buildQuoteHtml({ quote, vehicle }));
+    quoteWindow.document.write(buildQuoteHtml({ quote, vehicle, companySettings }));
     quoteWindow.document.close();
     quoteWindow.focus();
     quoteWindow.onload = () => {
       quoteWindow.print();
     };
   };
+
+  useEffect(() => {
+    loadCompanySettings({ silent: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     const token = localStorage.getItem(AUTH_TOKEN_KEY);
@@ -2421,7 +2587,8 @@ const formatMoney = (value, currency = "USD") => {
         format,
         reportRows,
         estadoLabel,
-        printWindow
+        printWindow,
+        companySettings
       });
     } catch (error) {
       if (printWindow && !printWindow.closed) {
@@ -2456,7 +2623,8 @@ const formatMoney = (value, currency = "USD") => {
         estadoLabel,
         printWindow,
         reportTitle: "Dashboard financiero ejecutivo",
-        tableTitle: "Ganancia por vehículo"
+        tableTitle: "Ganancia por vehículo",
+        companySettings
       });
     } catch (error) {
       if (printWindow && !printWindow.closed) {
@@ -2499,7 +2667,8 @@ const formatMoney = (value, currency = "USD") => {
       printWindow,
       reportTitle: "Reporte de inventario",
       tableTitle: "Inventario valorizado",
-      emptyMessage: "No hay vehículos para mostrar con los filtros actuales."
+      emptyMessage: "No hay vehículos para mostrar con los filtros actuales.",
+      companySettings
     });
   };
 
@@ -2532,7 +2701,8 @@ const formatMoney = (value, currency = "USD") => {
         lossRows,
         brandRows: brandRankingRows,
         estadoLabel,
-        printWindow
+        printWindow,
+        companySettings
       });
     } catch (error) {
       if (printWindow && !printWindow.closed) {
@@ -2571,7 +2741,7 @@ const formatMoney = (value, currency = "USD") => {
       }
 
       receiptWindow.document.open();
-      receiptWindow.document.write(buildReceiptHtml({ vehicle, sale, estadoLabel }));
+      receiptWindow.document.write(buildReceiptHtml({ vehicle, sale, estadoLabel, companySettings }));
       receiptWindow.document.close();
       receiptWindow.focus();
       receiptWindow.onload = () => {
@@ -2759,6 +2929,7 @@ const formatMoney = (value, currency = "USD") => {
   const oldestInventoryVehicle = sortedInventoryAgeRows.find((row) => row.estado !== "vendido") || sortedInventoryAgeRows[0] || null;
 
   const isAdmin = authUser?.role === "admin";
+  const companyBrand = normalizeCompanySettings(companySettings);
   const tabs = [
     { key: "dashboard", label: "Dashboard" },
     { key: "vehiculos", label: "Vehículos" },
@@ -2769,6 +2940,7 @@ const formatMoney = (value, currency = "USD") => {
     { key: "estimacion_aduanal", label: "Estimación Aduanal" },
     { key: "reportes", label: "Reportes" },
     { key: "analytics", label: "Analytics" },
+    { key: "configuracion_empresa", label: "Configuracion empresa", adminOnly: true },
     { key: "usuarios", label: "Usuarios", adminOnly: true },
     { key: "auditoria", label: "Auditoría", adminOnly: true }
   ];
@@ -2817,10 +2989,10 @@ const formatMoney = (value, currency = "USD") => {
       <main className="login-shell">
         <section className="login-panel" aria-busy={authStatus === "checking"}>
           <div className="login-brand">
-            <img className="login-logo" src={COMPANY_BRAND.logo} alt={COMPANY_BRAND.name} />
+            <img className="login-logo" src={companyBrand.logo} alt={companyBrand.name} />
             <p className="eyebrow">Acceso corporativo</p>
             <h1>Acceso seguro</h1>
-            <p className="page-subtitle">{COMPANY_BRAND.subtitle}</p>
+            <p className="page-subtitle">{companyBrand.subtitle}</p>
           </div>
 
           {authStatus === "checking" ? (
@@ -2870,11 +3042,11 @@ const formatMoney = (value, currency = "USD") => {
     <div className="app-shell">
       <header className="page-header">
         <div className="brand-header">
-          <img className="brand-logo" src={COMPANY_BRAND.logo} alt={COMPANY_BRAND.name} />
+          <img className="brand-logo" src={companyBrand.logo} alt={companyBrand.name} />
           <div>
             <p className="eyebrow">Sistema corporativo</p>
-            <h1>{COMPANY_BRAND.name}</h1>
-            <p className="page-subtitle">{COMPANY_BRAND.subtitle}</p>
+            <h1>{companyBrand.name}</h1>
+            <p className="page-subtitle">{companyBrand.subtitle}</p>
           </div>
         </div>
         <div className="user-menu">
@@ -2955,6 +3127,55 @@ const formatMoney = (value, currency = "USD") => {
           </div>
         </div>
       </section>
+      )}
+
+      {activeTab === "configuracion_empresa" && isAdmin && (
+        <section className="panel company-settings-panel">
+          <div className="panel-title-row">
+            <div>
+              <h2>Configuracion de empresa</h2>
+              <p className="panel-subtitle">Datos corporativos usados en login, header, facturas, cotizaciones y PDFs.</p>
+            </div>
+            <button className="btn btn-secondary" type="button" onClick={() => loadCompanySettings()} disabled={companySettingsLoading}>
+              {companySettingsLoading ? <LoadingSpinner /> : "Recargar"}
+            </button>
+          </div>
+
+          {companySettingsMessage.text && (
+            <div className={`user-feedback user-feedback-${companySettingsMessage.type}`}>{companySettingsMessage.text}</div>
+          )}
+
+          <div className="company-settings-layout">
+            <form className="admin-user-form company-settings-form" onSubmit={handleCompanySettingsSubmit}>
+              <div className="form-grid company-settings-grid">
+                <input className="input-control" name="company_name" placeholder="Nombre de empresa" value={companySettingsForm.company_name} onChange={handleCompanySettingsChange} required />
+                <input className="input-control" name="rnc" placeholder="RNC" value={companySettingsForm.rnc} onChange={handleCompanySettingsChange} />
+                <input className="input-control" name="address" placeholder="Direccion" value={companySettingsForm.address} onChange={handleCompanySettingsChange} />
+                <input className="input-control" name="city" placeholder="Ciudad" value={companySettingsForm.city} onChange={handleCompanySettingsChange} />
+                <input className="input-control" name="phone" placeholder="Telefono" value={companySettingsForm.phone} onChange={handleCompanySettingsChange} />
+                <input className="input-control" type="email" name="email" placeholder="Email" value={companySettingsForm.email} onChange={handleCompanySettingsChange} />
+                <input className="input-control" name="website" placeholder="Website" value={companySettingsForm.website} onChange={handleCompanySettingsChange} />
+                <input className="input-control" name="logo_url" placeholder="URL del logo" value={companySettingsForm.logo_url} onChange={handleCompanySettingsChange} />
+              </div>
+              <div className="cost-form-actions user-form-actions">
+                <button className="btn btn-primary" type="submit" disabled={companySettingsSaving}>
+                  {companySettingsSaving ? "Guardando..." : "Guardar configuracion"}
+                </button>
+              </div>
+            </form>
+
+            <aside className="company-settings-preview">
+              <img src={companySettingsForm.logo_url || COMPANY_BRAND.logo} alt={companySettingsForm.company_name || COMPANY_BRAND.name} />
+              <div>
+                <h3>{companySettingsForm.company_name || COMPANY_BRAND.name}</h3>
+                <p>{companySettingsForm.address || COMPANY_BRAND.address}</p>
+                <p>{companySettingsForm.city || COMPANY_BRAND.city}</p>
+                <p>Tel: {companySettingsForm.phone || COMPANY_BRAND.phone}</p>
+                <p>RNC: {companySettingsForm.rnc || COMPANY_BRAND.rnc}</p>
+              </div>
+            </aside>
+          </div>
+        </section>
       )}
 
       {activeTab === "usuarios" && isAdmin && showUsersAdmin && (
@@ -4729,11 +4950,69 @@ const formatMoney = (value, currency = "USD") => {
 
       {activeTab === "auditoria" && (
         <section className="panel">
-          <h2>Auditoría</h2>
-          <p className="panel-subtitle">Registro de acciones administrativas del sistema.</p>
-          <button className="btn btn-secondary" type="button" onClick={loadAuditLogs} disabled={auditLogsLoading}>
-            {auditLogsLoading ? <LoadingSpinner label="Cargando..." /> : "Actualizar auditoría"}
-          </button>
+          <div className="panel-title-row">
+            <div>
+              <h2>Auditoría</h2>
+              <p className="panel-subtitle">Registro de acciones administrativas del sistema.</p>
+            </div>
+            <button className="btn btn-secondary" type="button" onClick={() => loadAuditLogs()} disabled={auditLogsLoading}>
+              {auditLogsLoading ? <LoadingSpinner label="Cargando..." /> : "Recargar"}
+            </button>
+          </div>
+
+          <form className="financial-filters" onSubmit={handleApplyAuditFilters}>
+            <label className="filter-field">
+              <span>Desde</span>
+              <input className="input-control" type="date" name="start_date" value={auditFilters.start_date} onChange={handleAuditFilterChange} />
+            </label>
+            <label className="filter-field">
+              <span>Hasta</span>
+              <input className="input-control" type="date" name="end_date" value={auditFilters.end_date} onChange={handleAuditFilterChange} />
+            </label>
+            <label className="filter-field">
+              <span>Usuario</span>
+              <select className="input-control" name="user_id" value={auditFilters.user_id} onChange={handleAuditFilterChange}>
+                <option value="">Todos</option>
+                {users.map((user) => (
+                  <option key={user.id} value={user.id}>{user.name || user.email || `Usuario ${user.id}`}</option>
+                ))}
+              </select>
+            </label>
+            <label className="filter-field">
+              <span>Acción</span>
+              <select className="input-control" name="action" value={auditFilters.action} onChange={handleAuditFilterChange}>
+                <option value="">Todas</option>
+                {auditFilterOptions.actions.map((action) => (
+                  <option key={action} value={action}>{action}</option>
+                ))}
+              </select>
+            </label>
+            <label className="filter-field">
+              <span>Entidad</span>
+              <select className="input-control" name="entity_type" value={auditFilters.entity_type} onChange={handleAuditFilterChange}>
+                <option value="">Todas</option>
+                {auditFilterOptions.entityTypes.map((entityType) => (
+                  <option key={entityType} value={entityType}>{entityType}</option>
+                ))}
+              </select>
+            </label>
+            <label className="filter-field">
+              <span>ID entidad</span>
+              <input className="input-control" name="entity_id" value={auditFilters.entity_id} onChange={handleAuditFilterChange} />
+            </label>
+            <label className="filter-field">
+              <span>Texto libre</span>
+              <input className="input-control" name="q" value={auditFilters.q} onChange={handleAuditFilterChange} placeholder="Detalles, usuario o campos de texto" />
+            </label>
+            <div className="financial-filter-actions">
+              <button className="btn btn-primary" type="submit" disabled={auditLogsLoading}>Aplicar filtros</button>
+              <button className="btn btn-secondary" type="button" onClick={handleClearAuditFilters} disabled={auditLogsLoading}>Limpiar filtros</button>
+            </div>
+          </form>
+
+          <p className="audit-results-count" aria-live="polite">
+            Total de registros encontrados: <strong>{auditLogsCount}</strong>
+          </p>
           {auditLogsMessage.text && (
             <div className={`user-feedback user-feedback-${auditLogsMessage.type}`}>{auditLogsMessage.text}</div>
           )}

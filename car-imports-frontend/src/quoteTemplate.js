@@ -1,4 +1,4 @@
-import { COMPANY_BRAND, getCompanyLogoUrl } from "./branding";
+import { COMPANY_BRAND, getCompanyLogoUrl, normalizeCompanySettings } from "./branding";
 
 const escapeHtml = (value) =>
   String(value ?? "")
@@ -36,8 +36,8 @@ const formatMoney = (value, currency = "USD") => {
   })}`;
 };
 
-export const buildQuoteHtml = ({ quote, vehicle }) => {
-  const company = COMPANY_BRAND;
+export const buildQuoteHtml = ({ quote, vehicle, companySettings = COMPANY_BRAND }) => {
+  const company = normalizeCompanySettings(companySettings);
   const issuedAt = new Date();
   const vehicleTitle = [vehicle?.marca, vehicle?.modelo, vehicle?.anio].filter(Boolean).join(" ") || "-";
 
@@ -186,7 +186,7 @@ export const buildQuoteHtml = ({ quote, vehicle }) => {
   <main class="document">
     <header class="header">
       <div class="brand">
-        <img class="logo" src="${escapeHtml(getCompanyLogoUrl())}" alt="${escapeHtml(company.name)}" />
+        <img class="logo" src="${escapeHtml(getCompanyLogoUrl(company))}" alt="${escapeHtml(company.name)}" />
         <div>
           <h1>${escapeHtml(company.name)}</h1>
           <p>${escapeHtml(company.address)}</p>
